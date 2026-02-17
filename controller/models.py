@@ -3,7 +3,7 @@ Configuration and state models for stream controller.
 """
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
@@ -21,12 +21,19 @@ class StreamConfig(BaseModel):
     Stream configuration (persisted to stream_config.json).
 
     Note: Stream key is NOT persisted - only loaded from environment.
+
+    Supports two modes:
+    1. Single file: Set media_key
+    2. Playlist: Set playlist (list of media keys)
     """
     youtube_rtmp_url: str = Field(
         ..., description="YouTube RTMP server URL (without stream key)"
     )
-    media_key: str = Field(
-        ..., description="Media file key in object storage bucket"
+    media_key: Optional[str] = Field(
+        default=None, description="Single media file key (use for single file mode)"
+    )
+    playlist: Optional[List[str]] = Field(
+        default=None, description="List of media keys to play sequentially (use for playlist mode)"
     )
 
     @field_validator('youtube_rtmp_url')
@@ -36,6 +43,26 @@ class StreamConfig(BaseModel):
         if not v.startswith('rtmp://'):
             raise ValueError('RTMP URL must start with rtmp://')
         return v
+
+    @field_validator('playlist')
+    @classmethod
+    def validate_playlist(cls, v, info):
+        """Validate that either media_key or playlist is set."""
+        if v is not None and len(v) == 0:
+            raise ValueError('Playlist cannot be empty')
+        return v
+
+    @property
+    def is_playlist(self) -> bool:
+        """Check if config is in playlist mode."""
+        return self.playlist is not None and len(self.playlist) > 0
+
+    @property
+    def effective_media_key(self) -> str:
+        """Get the media key to use (for backwards compatibility)."""
+        if self.is_playlist:
+            return self.playlist[0] if self.playlist else ""
+        return self.media_key or ""
 
 
 class StreamState(BaseModel):
@@ -67,6 +94,12 @@ class StreamState(BaseModel):
     )
     media_key: Optional[str] = Field(
         default=None, description="Media key being streamed"
+    )
+    playlist_index: Optional[int] = Field(
+        default=None, description="Current playlist index (0-based)"
+    )
+    playlist_completed: List[str] = Field(
+        default_factory=list, description="List of completed media keys in playlist"
     )
 
     @property

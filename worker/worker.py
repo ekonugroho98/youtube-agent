@@ -10,8 +10,9 @@ import signal
 import asyncio
 import logging
 import argparse
+import json
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from storage import StorageClient, StorageConnectionError
 from .ffmpeg import FFmpegRunner, FFmpegError
@@ -41,6 +42,7 @@ class StreamWorker:
     - Failure recovery with exponential backoff
     - Graceful shutdown
     - Loop streaming (restart when video ends)
+    - Playlist mode (multiple files in sequence)
     """
 
     # Retry configuration
@@ -54,16 +56,26 @@ class StreamWorker:
     LOOP_STREAMING = os.getenv("LOOP_STREAMING", "false").lower() == "true"
     LOOP_DELAY = int(os.getenv("LOOP_DELAY", "5"))  # seconds between loops
 
-    def __init__(self, media_key: str, rtmp_url: str):
+    # Playlist configuration
+    PLAYLIST_MODE = os.getenv("PLAYLIST_MODE", "false").lower() == "true"
+    PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "")  # Path to playlist JSON file
+    PLAYLIST_DELAY = int(os.getenv("PLAYLIST_DELAY", "3"))  # seconds between tracks
+
+    def __init__(self, media_key: str, rtmp_url: str, playlist: Optional[List[str]] = None):
         """
         Initialize stream worker.
 
         Args:
-            media_key: Media file key in object storage
+            media_key: Media file key in object storage (for single file mode)
             rtmp_url: YouTube RTMP URL (without stream key)
+            playlist: List of media keys (for playlist mode)
         """
         self.media_key = media_key
         self.rtmp_url = rtmp_url
+        self.playlist = playlist or []
+
+        # Determine mode
+        self.is_playlist_mode = len(self.playlist) > 0
 
         # Load stream key from environment
         self.stream_key = os.getenv("YOUTUBE_STREAM_KEY")
@@ -81,6 +93,8 @@ class StreamWorker:
         self._shutdown_event = asyncio.Event()
         self._retry_count = 0
         self._loop_count = 0
+        self._playlist_index = 0
+        self._playlist_completed = []
 
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -95,7 +109,7 @@ class StreamWorker:
 
     async def run(self) -> int:
         """
-        Run worker with retry logic and optional looping.
+        Run worker with retry logic and optional looping/playlist.
 
         Returns:
             Exit code (0 for success, non-zero for failure)
@@ -103,13 +117,20 @@ class StreamWorker:
         Raises:
             WorkerError: Fatal error preventing retries
         """
+        if self.is_playlist_mode:
+            return await self._run_playlist()
+        else:
+            return await self._run_single()
+
+    async def _run_single(self) -> int:
+        """Run worker in single file mode with optional looping."""
         logger.info(f"Starting worker for media: {self.media_key}")
         if self.LOOP_STREAMING:
             logger.info(f"Loop streaming ENABLED (delay: {self.LOOP_DELAY}s)")
 
         while self._retry_count < self.MAX_RETRIES:
             try:
-                await self._stream_media()
+                await self._stream_media(self.media_key)
 
                 # Stream completed successfully
                 self._loop_count += 1
@@ -185,22 +206,119 @@ class StreamWorker:
 
         return 1
 
-    async def _stream_media(self) -> None:
+    async def _run_playlist(self) -> int:
+        """Run worker in playlist mode (multiple files sequentially)."""
+        logger.info(f"Starting playlist mode with {len(self.playlist)} files")
+        if self.LOOP_STREAMING:
+            logger.info(f"Playlist looping ENABLED (delay: {self.PLAYLIST_DELAY}s)")
+
+        while True:
+            # Check for shutdown signal
+            if self._shutdown_event.is_set():
+                logger.info("Shutdown signal received, exiting playlist")
+                return 0
+
+            # Get current media
+            if self._playlist_index >= len(self.playlist):
+                # Playlist completed
+                logger.info(f"Playlist completed! ({len(self.playlist)} files)")
+
+                if self.LOOP_STREAMING:
+                    # Restart playlist from beginning
+                    self._playlist_index = 0
+                    self._playlist_completed = []
+                    self._retry_count = 0
+                    logger.info("Restarting playlist from beginning...")
+                    try:
+                        await asyncio.wait_for(
+                            self._shutdown_event.wait(),
+                            timeout=self.PLAYLIST_DELAY
+                        )
+                        return 0
+                    except asyncio.TimeoutError:
+                        continue
+                else:
+                    # Exit after playlist completes
+                    return 0
+
+            # Get current media key
+            current_media = self.playlist[self._playlist_index]
+            logger.info(f"Playing [{self._playlist_index + 1}/{len(self.playlist)}]: {current_media}")
+
+            # Stream current media with retry logic
+            retry_count = 0
+            while retry_count < self.MAX_RETRIES:
+                try:
+                    await self._stream_media(current_media)
+
+                    # Success - mark as completed and move to next
+                    self._playlist_completed.append(current_media)
+                    self._playlist_index += 1
+                    logger.info(f"✓ Completed: {current_media} ({len(self._playlist_completed)}/{len(self.playlist)})")
+
+                    # Short delay before next track
+                    if self._playlist_index < len(self.playlist):
+                        try:
+                            logger.info(f"Next track in {self.PLAYLIST_DELAY}s...")
+                            await asyncio.wait_for(
+                                self._shutdown_event.wait(),
+                                timeout=self.PLAYLIST_DELAY
+                            )
+                            return 0
+                        except asyncio.TimeoutError:
+                            pass  # Continue to next track
+
+                    break  # Success, break retry loop
+
+                except FFmpegError as e:
+                    logger.error(f"FFmpeg error for {current_media}: {e}")
+                    retry_count += 1
+
+                    if retry_count >= self.MAX_RETRIES:
+                        logger.error(f"Max retries exceeded for {current_media}")
+                        # Skip to next track or abort
+                        if os.getenv("PLAYLIST_ON_ERROR", "skip").lower() == "skip":
+                            logger.info(f"Skipping {current_media} and continuing...")
+                            self._playlist_index += 1
+                            break
+                        else:
+                            return 1
+
+                    delay = self.BACKOFF_SEQUENCE[min(retry_count - 1, len(self.BACKOFF_SEQUENCE) - 1)]
+                    logger.info(f"Retrying {current_media} in {delay}s...")
+
+                    try:
+                        await asyncio.wait_for(
+                            self._shutdown_event.wait(),
+                            timeout=delay
+                        )
+                        return 0
+                    except asyncio.TimeoutError:
+                        pass  # Retry
+
+                except StorageConnectionError as e:
+                    logger.error(f"Storage error: {e}")
+                    return 1
+
+    async def _stream_media(self, media_key: str) -> None:
         """
         Stream media from storage to YouTube.
+
+        Args:
+            media_key: Media file key to stream
 
         Raises:
             StorageConnectionError: Failed to get media URL
             FFmpegError: FFmpeg streaming failed
         """
-        logger.info(f"Fetching stream URL for: {self.media_key}")
+        logger.info(f"Fetching stream URL for: {media_key}")
 
         # Get signed URL from storage
-        media_url = self.storage.get_stream_url(self.media_key)
+        media_url = self.storage.get_stream_url(media_key)
         logger.info(f"Media URL: {media_url[:50]}...")
 
         # Detect if MP4 for codec copy
-        is_mp4 = self.media_key.lower().endswith('.mp4')
+        is_mp4 = media_key.lower().endswith('.mp4')
 
         # Start FFmpeg
         self.ffmpeg = FFmpegRunner(
@@ -228,11 +346,23 @@ async def main():
     parser = argparse.ArgumentParser(description="YouTube stream worker")
     parser.add_argument("--media-key", required=True, help="Media file key in storage")
     parser.add_argument("--rtmp-url", required=True, help="YouTube RTMP URL")
+    parser.add_argument("--playlist", required=False, help="Playlist JSON array")
 
     args = parser.parse_args()
 
     try:
-        worker = StreamWorker(media_key=args.media_key, rtmp_url=args.rtmp_url)
+        # Parse playlist if provided
+        playlist = None
+        if args.playlist:
+            import json
+            playlist = json.loads(args.playlist)
+            logger.info(f"Loaded playlist with {len(playlist)} files")
+
+        worker = StreamWorker(
+            media_key=args.media_key,
+            rtmp_url=args.rtmp_url,
+            playlist=playlist
+        )
         exit_code = await worker.run()
         sys.exit(exit_code)
 

@@ -185,12 +185,17 @@ async def start_stream():
 
 
 @app.post("/streams/config")
-async def update_stream_config(media_key: str, youtube_rtmp_url: Optional[str] = None):
+async def update_stream_config(
+    media_key: Optional[str] = None,
+    playlist: Optional[str] = None,
+    youtube_rtmp_url: Optional[str] = None
+):
     """
-    Update stream configuration (which file to stream).
+    Update stream configuration (which file/playlist to stream).
 
     Args:
-        media_key: Media file key in storage (e.g., "smaller.mp4")
+        media_key: Single media file key (e.g., "smaller.mp4")
+        playlist: Comma-separated list of media keys (e.g., "surah_1.mp4,surah_2.mp4,surah_3.mp4")
         youtube_rtmp_url: RTMP URL (optional, uses env default if not provided)
 
     Returns:
@@ -206,20 +211,37 @@ async def update_stream_config(media_key: str, youtube_rtmp_url: Optional[str] =
                 detail={"error": "RTMP URL not provided and YOUTUBE_RTMP_URL not set"}
             )
 
+        # Parse playlist if provided
+        playlist_list = None
+        if playlist:
+            playlist_list = [p.strip() for p in playlist.split(",")]
+            if not media_key:
+                media_key = playlist_list[0]  # Use first track as default
+            logger.info(f"Playlist mode: {len(playlist_list)} files")
+        elif not media_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Either media_key or playlist must be provided"}
+            )
+
         # Create config
         config = StreamConfig(
             youtube_rtmp_url=rtmp_url,
-            media_key=media_key
+            media_key=media_key,
+            playlist=playlist_list
         )
 
         # Save config
         persistence.save_config(config)
 
-        logger.info(f"Stream config updated: media_key={media_key}")
+        mode = "playlist" if playlist_list else "single"
+        logger.info(f"Stream config updated: mode={mode}, media_key={media_key}")
 
         return {
             "status": "config_updated",
+            "mode": mode,
             "media_key": config.media_key,
+            "playlist": config.playlist,
             "youtube_rtmp_url": config.youtube_rtmp_url
         }
 

@@ -70,12 +70,34 @@ class WorkerManager:
             "worker.py"
         )
 
-        cmd = [
-            "python",
-            worker_path,
-            "--media-key", config.media_key,
-            "--rtmp-url", config.youtube_rtmp_url,
-        ]
+        # Build worker command
+        worker_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "worker",
+            "worker.py"
+        )
+
+        # Check if playlist mode
+        if config.is_playlist:
+            # Pass playlist as JSON argument
+            import json
+            playlist_json = json.dumps(config.playlist)
+
+            cmd = [
+                "python",
+                worker_path,
+                "--media-key", config.playlist[0],  # First track
+                "--rtmp-url", config.youtube_rtmp_url,
+                "--playlist", playlist_json,
+            ]
+        else:
+            cmd = [
+                "python",
+                worker_path,
+                "--media-key", config.media_key,
+                "--rtmp-url", config.youtube_rtmp_url,
+            ]
 
         # Environment (inherit from parent, stream key from env)
         env = os.environ.copy()

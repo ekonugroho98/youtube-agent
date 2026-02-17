@@ -229,8 +229,10 @@ rclone copy video.mp4 r2:your-bucket/video.mp4
 
 Before starting, you need to specify which file to stream:
 
+#### Single File Mode
+
 ```bash
-# Set file to stream (e.g., smaller.mp4)
+# Set single file to stream (e.g., smaller.mp4)
 curl -X POST "http://localhost:8000/streams/config?media_key=smaller.mp4"
 ```
 
@@ -238,10 +240,44 @@ Response:
 ```json
 {
   "status": "config_updated",
+  "mode": "single",
   "media_key": "smaller.mp4",
   "youtube_rtmp_url": "rtmp://a.rtmp.youtube.com/live2"
 }
 ```
+
+#### Playlist Mode (Multiple Files Sequentially)
+
+Stream multiple files in sequence (e.g., different surahs):
+
+```bash
+# Set playlist (comma-separated)
+curl -X POST "http://localhost:8000/streams/config?playlist=surah_1.mp4,surah_2.mp4,surah_3.mp4"
+```
+
+Response:
+```json
+{
+  "status": "config_updated",
+  "mode": "playlist",
+  "media_key": "surah_1.mp4",
+  "playlist": ["surah_1.mp4", "surah_2.mp4", "surah_3.mp4"],
+  "youtube_rtmp_url": "rtmp://a.rtmp.youtube.com/live2"
+}
+```
+
+**Playlist Behavior:**
+- Plays files sequentially in order
+- Shows progress: `[1/3] surah_1.mp4` → `[2/3] surah_2.mp4` → `[3/3] surah_3.mp4`
+- 3-second delay between tracks (configurable via `PLAYLIST_DELAY`)
+- On error: skips to next track by default (configurable via `PLAYLIST_ON_ERROR`)
+- When combined with `LOOP_STREAMING=true`: restarts playlist from beginning after completion
+
+**Use Cases:**
+- Quran recitation (multiple surahs in sequence)
+- Podcast episodes
+- Music albums
+- Lecture series
 
 ### 3. Start Streaming
 
@@ -295,13 +331,6 @@ When enabled:
 - Background music/ambiance streams
 - Waiting screen streams
 - Scheduled content loops
-```
-
-The worker will:
-1. Fetch signed URL from storage
-2. Start FFmpeg to stream to YouTube
-3. Auto-retry on failure (up to 3 times)
-4. Log streaming progress
 
 ### 4. Check Status
 
@@ -366,12 +395,46 @@ curl http://localhost:8000/streams/status
 curl -X POST http://localhost:8000/streams/stop
 ```
 
+### Complete Example: Playlist Mode (Multiple Surahs)
+
+```bash
+# 1. Upload all files to storage
+python scripts/upload.py surah_1.mp4
+python scripts/upload.py surah_2.mp4
+python scripts/upload.py surah_3.mp4
+
+# 2. Setup config directory
+sudo mkdir -p /var/lib/stream-controller
+sudo chown $USER:$USER /var/lib/stream-controller
+
+# 3. Start controller
+python -m uvicorn controller.main:app --host 0.0.0.0 --port 8000
+
+# 4. Configure playlist
+curl -X POST "http://localhost:8000/streams/config?playlist=surah_1.mp4,surah_2.mp4,surah_3.mp4"
+
+# 5. (Optional) Enable looping for 24/7 stream
+# Edit .env: LOOP_STREAMING=true
+
+# 6. Start streaming
+curl -X POST http://localhost:8000/streams/start
+
+# Worker will play:
+# [1/3] surah_1.mp4 → [2/3] surah_2.mp4 → [3/3] surah_3.mp4 → (repeat if LOOP_STREAMING=true)
+
+# 7. Check status
+curl http://localhost:8000/streams/status
+
+# 8. Stop when done
+curl -X POST http://localhost:8000/streams/stop
+```
+
 ## API Endpoints
 
 | Endpoint | Method | Parameters | Description |
 |----------|--------|------------|-------------|
 | `/health` | GET | - | Health check |
-| `/streams/config` | POST | `media_key` (query), `youtube_rtmp_url` (query, optional) | Set which file to stream |
+| `/streams/config` | POST | `media_key` (query, optional), `playlist` (query, optional), `youtube_rtmp_url` (query, optional) | Set which file/playlist to stream |
 | `/streams/start` | POST | - | Start streaming |
 | `/streams/stop` | POST | - | Stop streaming |
 | `/streams/status` | GET | - | Get stream status |
