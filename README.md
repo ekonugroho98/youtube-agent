@@ -184,6 +184,34 @@ sudo systemctl status stream-controller
 
 ## Usage
 
+### Web Dashboard (Recommended)
+
+Access the web dashboard for easy configuration:
+
+```bash
+# Start the controller
+python -m uvicorn controller.main:app --host 0.0.0.0 --port 8000
+
+# Open dashboard in browser
+open http://localhost:8000
+```
+
+**Dashboard Features:**
+- 📤 **Upload Files** - Drag & drop or browse to upload media
+- 📁 **Storage Browser** - View all files in your storage bucket
+- ⚙️ **Config Panel** - Set single file or playlist mode
+- 🎮 **Stream Controls** - Start/stop streaming with one click
+- 📊 **Status Monitor** - Real-time stream status, uptime, PID
+- 🔄 **Auto-refresh** - Status updates every 5 seconds
+
+**Using the Dashboard:**
+1. Open `http://localhost:8000` in your browser
+2. Upload files via the Upload panel
+3. Configure stream (Single File or Playlist tab)
+4. Click "Start Stream"
+5. Monitor status in real-time
+6. Stop when done
+
 ### 1. Upload Media to Storage
 
 Upload your video file to your S3-compatible storage bucket:
@@ -431,6 +459,12 @@ curl -X POST http://localhost:8000/streams/stop
 
 ## API Endpoints
 
+### Web Interface
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web dashboard (UI) |
+
+### Stream Management
 | Endpoint | Method | Parameters | Description |
 |----------|--------|------------|-------------|
 | `/health` | GET | - | Health check |
@@ -438,6 +472,12 @@ curl -X POST http://localhost:8000/streams/stop
 | `/streams/start` | POST | - | Start streaming |
 | `/streams/stop` | POST | - | Stop streaming |
 | `/streams/status` | GET | - | Get stream status |
+
+### Storage Operations
+| Endpoint | Method | Parameters | Description |
+|----------|--------|------------|-------------|
+| `/upload` | POST | `file` (form-data), `object_key` (form-data, optional) | Upload file to storage |
+| `/storage/files` | GET | - | List all media files in storage |
 
 ## Troubleshooting
 

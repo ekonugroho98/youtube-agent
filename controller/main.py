@@ -7,9 +7,12 @@ import os
 import logging
 from datetime import datetime
 from typing import Optional
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 
 from .models import (
@@ -21,6 +24,11 @@ from .models import (
 )
 from .persistence import StreamPersistence, ConfigNotFoundError, InvalidConfigError
 from .worker_manager import WorkerManager, WorkerManagerError
+
+# Import storage client for file operations
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from storage.client import StorageClient
 
 
 # Configure logging
@@ -46,9 +54,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files for dashboard
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 # Global components
 persistence: Optional[StreamPersistence] = None
 worker_manager: Optional[WorkerManager] = None
+storage_client: Optional[StorageClient] = None
 
 
 def validate_environment():
@@ -72,7 +86,7 @@ def validate_environment():
 @app.on_event("startup")
 async def startup_event():
     """Initialize controller on startup."""
-    global persistence, worker_manager
+    global persistence, worker_manager, storage_client
 
     logger.info("Starting stream controller...")
 
@@ -99,6 +113,14 @@ async def startup_event():
         logger.error(f"Failed to initialize worker manager: {e}")
         raise
 
+    # Initialize storage client
+    try:
+        storage_client = StorageClient()
+        logger.info("Storage client initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize storage client: {e}")
+        raise
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -106,6 +128,104 @@ async def shutdown_event():
     logger.info("Shutting down stream controller...")
     if worker_manager:
         await worker_manager.shutdown()
+
+
+@app.get("/")
+async def dashboard():
+    """Serve dashboard HTML."""
+    static_file = static_dir / "index.html"
+    if static_file.exists():
+        return FileResponse(str(static_file))
+    raise HTTPException(status_code=404, detail="Dashboard not found")
+
+
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    object_key: Optional[str] = Form(None)
+):
+    """
+    Upload file to storage.
+
+    Args:
+        file: File to upload
+        object_key: Custom object key (optional, uses filename if not provided)
+
+    Returns:
+        Uploaded file metadata
+    """
+    if not storage_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Storage client not initialized"}
+        )
+
+    try:
+        # Save uploaded file to temporary location
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        # Upload to storage
+        result = storage_client.upload_file(
+            file_path=tmp_file_path,
+            object_key=object_key
+        )
+
+        # Clean up temp file
+        import os
+        os.unlink(tmp_file_path)
+
+        logger.info(f"File uploaded: {result.key} ({result.size} bytes)")
+
+        return {
+            "key": result.key,
+            "size": result.size,
+            "last_modified": result.last_modified
+        }
+
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Upload failed", "message": str(e)}
+        )
+
+
+@app.get("/storage/files")
+async def list_storage_files():
+    """
+    List all media files in storage.
+
+    Returns:
+        List of media files with metadata
+    """
+    if not storage_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Storage client not initialized"}
+        )
+
+    try:
+        files = storage_client.list_media()
+        return {
+            "files": [
+                {
+                    "key": f.key,
+                    "size": f.size,
+                    "last_modified": f.last_modified
+                }
+                for f in files
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to list files: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to list files", "message": str(e)}
+        )
 
 
 @app.get("/health", response_model=HealthResponse)
