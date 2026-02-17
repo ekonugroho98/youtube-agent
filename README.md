@@ -188,6 +188,27 @@ sudo systemctl status stream-controller
 
 Upload your video file to your S3-compatible storage bucket:
 
+#### Using Python Script (Recommended)
+
+```bash
+# Upload file with progress bar
+python scripts/upload.py final.mp4
+
+# Upload with custom name
+python scripts/upload.py /path/to/video.mp4 custom-name.mp4
+
+# Upload to folder in bucket
+python scripts/upload.py murattal.mp3 live-media/murattal.mp3
+```
+
+Features:
+- Progress bar with speed & ETA
+- Multipart upload for large files
+- Automatic retry on connection failure
+- Generates stream URL after upload
+
+#### Using CLI Tools
+
 ```bash
 # Using AWS CLI
 aws s3 cp video.mp4 s3://your-bucket/video.mp4
@@ -196,7 +217,33 @@ aws s3 cp video.mp4 s3://your-bucket/video.mp4
 rclone copy video.mp4 r2:your-bucket/video.mp4
 ```
 
-### 2. Start Streaming
+#### Using Dashboard (Browser)
+
+1. Login to [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Navigate to **R2** → Select bucket
+3. Click **Upload** → Select file
+
+> **Note:** Dashboard has size limitations for large files. Use Python script or CLI for files >100MB.
+
+### 2. Configure Stream (Set Which File to Stream)
+
+Before starting, you need to specify which file to stream:
+
+```bash
+# Set file to stream (e.g., smaller.mp4)
+curl -X POST "http://localhost:8000/streams/config?media_key=smaller.mp4"
+```
+
+Response:
+```json
+{
+  "status": "config_updated",
+  "media_key": "smaller.mp4",
+  "youtube_rtmp_url": "rtmp://a.rtmp.youtube.com/live2"
+}
+```
+
+### 3. Start Streaming
 
 ```bash
 # Start the stream worker
@@ -212,7 +259,13 @@ Response:
 }
 ```
 
-### 3. Check Status
+The worker will:
+1. Fetch signed URL from storage
+2. Start FFmpeg to stream to YouTube
+3. Auto-retry on failure (up to 3 times)
+4. Log streaming progress
+
+### 4. Check Status
 
 ```bash
 # Get current stream status
@@ -227,11 +280,12 @@ Response:
   "started_at": "2024-02-17T10:30:00",
   "uptime_seconds": 300,
   "last_health_check": "2024-02-17T10:35:00",
+  "media_key": "smaller.mp4",
   "rtmp_url": "rtmp://a.rtmp.youtube.com/live2"
 }
 ```
 
-### 4. Stop Streaming
+### 5. Stop Streaming
 
 ```bash
 # Stop the stream worker
@@ -246,14 +300,43 @@ Response:
 }
 ```
 
+### Complete Example: Stream `smaller.mp4`
+
+```bash
+# 1. Upload file to storage
+python scripts/upload.py smaller.mp4
+
+# 2. Setup config directory
+sudo mkdir -p /var/lib/stream-controller
+sudo chown $USER:$USER /var/lib/stream-controller
+
+# 3. Start controller (if not running)
+python -m uvicorn controller.main:app --host 0.0.0.0 --port 8000
+
+# 4. Configure which file to stream
+curl -X POST "http://localhost:8000/streams/config?media_key=smaller.mp4"
+
+# 5. Start streaming
+curl -X POST http://localhost:8000/streams/start
+
+# 6. Check status
+curl http://localhost:8000/streams/status
+
+# 7. Open YouTube Studio to see your live stream!
+
+# 8. Stop when done
+curl -X POST http://localhost:8000/streams/stop
+```
+
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/streams/start` | POST | Start streaming |
-| `/streams/stop` | POST | Stop streaming |
-| `/streams/status` | GET | Get stream status |
+| Endpoint | Method | Parameters | Description |
+|----------|--------|------------|-------------|
+| `/health` | GET | - | Health check |
+| `/streams/config` | POST | `media_key` (query), `youtube_rtmp_url` (query, optional) | Set which file to stream |
+| `/streams/start` | POST | - | Start streaming |
+| `/streams/stop` | POST | - | Stop streaming |
+| `/streams/status` | GET | - | Get stream status |
 
 ## Troubleshooting
 

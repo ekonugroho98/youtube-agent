@@ -199,3 +199,113 @@ class StorageClient:
             raise StorageConnectionError(
                 f"Failed to generate signed URL for '{media_key}': {str(e)}"
             )
+
+    def upload_file(self, file_path: str, object_key: Optional[str] = None, progress_callback: Optional[callable] = None) -> MediaFile:
+        """
+        Upload a file to storage bucket with progress tracking.
+
+        Args:
+            file_path: Local path to the file to upload
+            object_key: S3 object key (optional, defaults to filename from file_path)
+            progress_callback: Optional callback function(bytes_transferred, total_bytes)
+
+        Returns:
+            MediaFile with uploaded file metadata
+
+        Raises:
+            StorageConnectionError: Upload failed
+            StorageAuthError: Authentication failed
+            FileNotFoundError: Local file not found
+        """
+        # Validate file exists
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # Use filename as object key if not provided
+        if object_key is None:
+            object_key = os.path.basename(file_path)
+
+        try:
+            file_size = os.path.getsize(file_path)
+            logger.info(f"Uploading {file_path} to {self.bucket_name}/{object_key} ({file_size} bytes)")
+
+            # Upload with progress tracking
+            if progress_callback:
+                from boto3.s3.transfer import TransferConfig
+                config = TransferConfig(
+                    multipart_threshold=8 * 1024 * 1024,  # 8MB
+                    max_concurrency=10,
+                    multipart_chunksize=8 * 1024 * 1024,
+                )
+
+                class ProgressCallback:
+                    def __init__(self, filesize, callback):
+                        self._filesize = filesize
+                        self._callback = callback
+                        self._seen_so_far = 0
+
+                    def __call__(self, bytes_amount):
+                        self._seen_so_far += bytes_amount
+                        self._callback(self._seen_so_far, self._filesize)
+
+                self.client.upload_file(
+                    file_path,
+                    self.bucket_name,
+                    object_key,
+                    ExtraArgs={'ContentType': self._get_content_type(object_key)},
+                    Callback=ProgressCallback(file_size, progress_callback),
+                    Config=config
+                )
+            else:
+                self.client.upload_file(
+                    file_path,
+                    self.bucket_name,
+                    object_key,
+                    ExtraArgs={'ContentType': self._get_content_type(object_key)}
+                )
+
+            logger.info(f"Successfully uploaded {object_key}")
+
+            # Get object metadata
+            response = self.client.head_object(Bucket=self.bucket_name, Key=object_key)
+
+            return MediaFile(
+                key=object_key,
+                size=response['ContentLength'],
+                last_modified=response['LastModified'].isoformat()
+            )
+
+        except NoCredentialsError:
+            raise StorageAuthError(
+                "Storage credentials not found. Check STORAGE_ACCESS_KEY_ID and "
+                "STORAGE_SECRET_ACCESS_KEY environment variables."
+            )
+        except PartialCredentialsError:
+            raise StorageAuthError(
+                "Incomplete storage credentials. Check both access key and secret key."
+            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchBucket':
+                raise StorageNotFoundError(
+                    f"Bucket '{self.bucket_name}' not found. Check STORAGE_BUCKET."
+                )
+            raise StorageConnectionError(f"Upload failed: {str(e)}")
+        except Exception as e:
+            raise StorageConnectionError(f"Unexpected error during upload: {str(e)}")
+
+    def _get_content_type(self, filename: str) -> str:
+        """Get MIME content type based on file extension."""
+        content_types = {
+            '.mp4': 'video/mp4',
+            '.mkv': 'video/x-matroska',
+            '.mov': 'video/quicktime',
+            '.avi': 'video/x-msvideo',
+            '.flv': 'video/x-flv',
+            '.webm': 'video/webm',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg',
+            '.m4a': 'audio/mp4',
+        }
+        _, ext = os.path.splitext(filename.lower())
+        return content_types.get(ext, 'application/octet-stream')

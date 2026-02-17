@@ -184,6 +184,53 @@ async def start_stream():
         )
 
 
+@app.post("/streams/config")
+async def update_stream_config(media_key: str, youtube_rtmp_url: Optional[str] = None):
+    """
+    Update stream configuration (which file to stream).
+
+    Args:
+        media_key: Media file key in storage (e.g., "smaller.mp4")
+        youtube_rtmp_url: RTMP URL (optional, uses env default if not provided)
+
+    Returns:
+        200: Config updated successfully
+    """
+    try:
+        # Use provided RTMP URL or get from environment
+        rtmp_url = youtube_rtmp_url or os.getenv("YOUTUBE_RTMP_URL")
+
+        if not rtmp_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "RTMP URL not provided and YOUTUBE_RTMP_URL not set"}
+            )
+
+        # Create config
+        config = StreamConfig(
+            youtube_rtmp_url=rtmp_url,
+            media_key=media_key
+        )
+
+        # Save config
+        persistence.save_config(config)
+
+        logger.info(f"Stream config updated: media_key={media_key}")
+
+        return {
+            "status": "config_updated",
+            "media_key": config.media_key,
+            "youtube_rtmp_url": config.youtube_rtmp_url
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to update config: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to update config", "message": str(e)}
+        )
+
+
 @app.post("/streams/stop")
 async def stop_stream():
     """
