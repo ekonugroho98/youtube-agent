@@ -40,6 +40,7 @@ class StreamWorker:
     - FFmpeg subprocess spawning and monitoring
     - Failure recovery with exponential backoff
     - Graceful shutdown
+    - Loop streaming (restart when video ends)
     """
 
     # Retry configuration
@@ -48,6 +49,10 @@ class StreamWorker:
 
     # Backoff sequence (seconds): 30 -> 60 -> 120 (capped)
     BACKOFF_SEQUENCE = [30, 60, 120]
+
+    # Loop streaming configuration
+    LOOP_STREAMING = os.getenv("LOOP_STREAMING", "false").lower() == "true"
+    LOOP_DELAY = int(os.getenv("LOOP_DELAY", "5"))  # seconds between loops
 
     def __init__(self, media_key: str, rtmp_url: str):
         """
@@ -75,6 +80,7 @@ class StreamWorker:
         # State
         self._shutdown_event = asyncio.Event()
         self._retry_count = 0
+        self._loop_count = 0
 
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -89,7 +95,7 @@ class StreamWorker:
 
     async def run(self) -> int:
         """
-        Run worker with retry logic.
+        Run worker with retry logic and optional looping.
 
         Returns:
             Exit code (0 for success, non-zero for failure)
@@ -98,13 +104,39 @@ class StreamWorker:
             WorkerError: Fatal error preventing retries
         """
         logger.info(f"Starting worker for media: {self.media_key}")
+        if self.LOOP_STREAMING:
+            logger.info(f"Loop streaming ENABLED (delay: {self.LOOP_DELAY}s)")
 
         while self._retry_count < self.MAX_RETRIES:
             try:
                 await self._stream_media()
-                # Success - exit cleanly
-                logger.info("Stream completed successfully")
-                return 0
+
+                # Stream completed successfully
+                self._loop_count += 1
+                logger.info(f"Stream completed successfully (loop #{self._loop_count})")
+
+                # Check if we should loop
+                if self.LOOP_STREAMING:
+                    # Reset retry counter on successful loop
+                    self._retry_count = 0
+
+                    # Check for shutdown signal before next loop
+                    try:
+                        logger.info(f"Restarting in {self.LOOP_DELAY}s...")
+                        await asyncio.wait_for(
+                            self._shutdown_event.wait(),
+                            timeout=self.LOOP_DELAY
+                        )
+                        # Shutdown signal received
+                        logger.info("Shutdown signal received during loop delay")
+                        return 0
+                    except asyncio.TimeoutError:
+                        # Delay complete, continue to next loop
+                        logger.info(f"Starting loop #{self._loop_count + 1}...")
+                        continue
+                else:
+                    # No looping, exit successfully
+                    return 0
 
             except FFmpegError as e:
                 logger.error(f"FFmpeg error: {e}")

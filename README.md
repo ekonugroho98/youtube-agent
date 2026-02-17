@@ -265,6 +265,44 @@ The worker will:
 3. Auto-retry on failure (up to 3 times)
 4. Log streaming progress
 
+#### Loop Streaming (Optional)
+
+Enable automatic looping to restart the stream when video ends:
+
+```bash
+# Edit .env file
+nano .env
+```
+
+Add or modify these variables:
+
+```bash
+# Enable loop streaming
+LOOP_STREAMING=true
+
+# Delay between loops (seconds, default: 5)
+LOOP_DELAY=5
+```
+
+When enabled:
+- Stream automatically restarts when video ends
+- Infinite loop until manually stopped
+- Useful for 24/7 live streams with repeat content
+- Worker logs each loop iteration
+
+**Use cases:**
+- 24/7 radio stations with looping audio
+- Background music/ambiance streams
+- Waiting screen streams
+- Scheduled content loops
+```
+
+The worker will:
+1. Fetch signed URL from storage
+2. Start FFmpeg to stream to YouTube
+3. Auto-retry on failure (up to 3 times)
+4. Log streaming progress
+
 ### 4. Check Status
 
 ```bash
