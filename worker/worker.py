@@ -14,8 +14,11 @@ import json
 from datetime import datetime
 from typing import Optional, List
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from storage import StorageClient, StorageConnectionError
-from .ffmpeg import FFmpegRunner, FFmpegError
+from worker.ffmpeg import FFmpegRunner, FFmpegError
 
 
 # Configure logging

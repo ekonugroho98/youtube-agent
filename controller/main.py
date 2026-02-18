@@ -9,11 +9,15 @@ from datetime import datetime
 from typing import Optional
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
+
+# Load environment variables from .env file
+load_dotenv()
 
 from .models import (
     StreamStatus,

@@ -89,6 +89,8 @@ class StorageClient:
 
     def _init_client(self):
         """Initialize boto3 client based on provider."""
+        from botocore.config import Config
+
         config = {
             'aws_access_key_id': self.access_key,
             'aws_secret_access_key': self.secret_key,
@@ -100,6 +102,8 @@ class StorageClient:
             endpoint = os.getenv("R2_ENDPOINT")
             if endpoint:
                 config['endpoint_url'] = endpoint
+            # R2 requires signature version v4
+            config['config'] = Config(signature_version='s3v4')
             logger.info(f"Initialized Cloudflare R2 client for bucket: {self.bucket_name}")
         elif self.provider == "aws":
             config['region_name'] = self.region
