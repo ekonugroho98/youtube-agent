@@ -35,6 +35,22 @@ class StreamConfig(BaseModel):
     playlist: Optional[List[str]] = Field(
         default=None, description="List of media keys to play sequentially (use for playlist mode)"
     )
+    loop_streaming: bool = Field(
+        default=False, description="Restart stream when video ends (auto loop)"
+    )
+    loop_delay: int = Field(
+        default=5, ge=1, le=300, description="Seconds to wait before restarting loop (1-300)"
+    )
+    # Daily schedule: start at same time each day, run for N hours, then stop (auto again next day)
+    schedule_enabled: bool = Field(
+        default=False, description="Enable daily schedule (start at set time, run for N hours)"
+    )
+    schedule_start_time: str = Field(
+        default="09:00", description="Daily start time (HH:MM, 24h, local timezone)"
+    )
+    schedule_duration_hours: float = Field(
+        default=8, ge=0.5, le=24, description="How many hours to run each day (0.5-24)"
+    )
 
     @field_validator('youtube_rtmp_url')
     @classmethod
@@ -51,6 +67,23 @@ class StreamConfig(BaseModel):
         if v is not None and len(v) == 0:
             raise ValueError('Playlist cannot be empty')
         return v
+
+    @field_validator('schedule_start_time')
+    @classmethod
+    def validate_schedule_start_time(cls, v: str) -> str:
+        """Validate HH:MM format (24h). Accepts 9:00 or 09:00."""
+        if not v or not v.strip():
+            return "09:00"
+        parts = v.strip().split(':')
+        if len(parts) != 2:
+            raise ValueError('schedule_start_time must be HH:MM (e.g. 09:00)')
+        try:
+            h, m = int(parts[0].strip()), int(parts[1].strip())
+            if h < 0 or h > 23 or m < 0 or m > 59:
+                raise ValueError('Invalid time')
+        except ValueError:
+            raise ValueError('schedule_start_time must be HH:MM (numbers)')
+        return f"{h:02d}:{m:02d}"
 
     @property
     def is_playlist(self) -> bool:
@@ -100,6 +133,9 @@ class StreamState(BaseModel):
     )
     playlist_completed: List[str] = Field(
         default_factory=list, description="List of completed media keys in playlist"
+    )
+    last_scheduled_start_date: Optional[str] = Field(
+        default=None, description="Last calendar date (YYYY-MM-DD) stream was started (avoids duplicate daily start)"
     )
 
     @property

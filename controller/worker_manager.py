@@ -99,8 +99,10 @@ class WorkerManager:
                 "--rtmp-url", config.youtube_rtmp_url,
             ]
 
-        # Environment (inherit from parent, stream key from env)
+        # Environment (inherit from parent, override loop from config)
         env = os.environ.copy()
+        env["LOOP_STREAMING"] = "true" if config.loop_streaming else "false"
+        env["LOOP_DELAY"] = str(config.loop_delay)
         # Stream key loaded from YOUTUBE_STREAM_KEY env var by worker
 
         try:
@@ -114,12 +116,14 @@ class WorkerManager:
 
             logger.info(f"Worker started with PID: {self.worker_process.pid}")
 
-            # Update state
+            # Update state (last_scheduled_start_date prevents scheduler from starting again same day)
+            today = datetime.now().strftime("%Y-%m-%d")
             state = StreamState(
                 status=StreamStatus.RUNNING,
                 worker_pid=self.worker_process.pid,
                 started_at=datetime.now().isoformat(),
                 media_key=config.media_key,
+                last_scheduled_start_date=today,
             )
             self.persistence.save_state(state)
 

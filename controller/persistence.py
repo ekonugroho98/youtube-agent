@@ -92,6 +92,20 @@ class StreamPersistence:
                 f"Failed to validate config: {str(e)}"
             )
 
+    def load_config_optional(self) -> Optional[StreamConfig]:
+        """
+        Load stream configuration if file exists.
+
+        Returns:
+            StreamConfig if file exists and is valid, None otherwise.
+        """
+        if not self.config_path.exists():
+            return None
+        try:
+            return self.load_config()
+        except (ConfigNotFoundError, InvalidConfigError):
+            return None
+
     def save_config(self, config: StreamConfig) -> None:
         """
         Save stream configuration to file (atomic write).

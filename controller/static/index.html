@@ -477,6 +477,35 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Loop settings (shared) -->
+                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="loop-streaming" style="width: 18px; height: 18px;">
+                        <span>🔄 Auto loop when video ends</span>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                        <label style="margin: 0;">Delay between loops (seconds)</label>
+                        <input type="number" id="loop-delay" min="1" max="300" value="5" style="width: 80px;">
+                        <button class="btn btn-primary" onclick="saveLoopSettings()">Save loop</button>
+                    </div>
+                </div>
+
+                <!-- Daily schedule: auto start same time every day, run N hours -->
+                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="schedule-enabled" style="width: 18px; height: 18px;">
+                        <span>📅 Daily schedule (e.g. live 8 jam/hari, otomatis tiap hari)</span>
+                    </label>
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;">
+                        <label style="margin: 0;">Mulai jam</label>
+                        <input type="text" id="schedule-start-time" placeholder="09:00" maxlength="5" style="width: 70px;" title="HH:MM (24h)">
+                        <label style="margin: 0;">Durasi (jam/hari)</label>
+                        <input type="number" id="schedule-duration-hours" min="0.5" max="24" step="0.5" value="8" style="width: 70px;">
+                        <button class="btn btn-primary" onclick="saveScheduleSettings()">Save schedule</button>
+                    </div>
+                    <p style="font-size: 12px; color: #666; margin-top: 8px;">Stream otomatis mulai di jam yang diatur, jalan N jam, lalu stop. Besok di jam yang sama mulai lagi.</p>
+                </div>
             </div>
         </div>
 
@@ -500,6 +529,7 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             refreshStatus();
+            loadStreamConfig();
             loadStorageFiles();
             setInterval(refreshStatus, 5000); // Auto-refresh every 5s
         });
@@ -650,6 +680,33 @@
             }
         }
 
+        // Load stream config (for form and loop settings)
+        async function loadStreamConfig() {
+            try {
+                const response = await fetch(`${API_BASE}/streams/config`);
+                const data = await response.json();
+                if (data.media_key) document.getElementById('single-media-key').value = data.media_key;
+                if (Array.isArray(data.playlist) && data.playlist.length) {
+                    playlist = data.playlist.slice();
+                    renderPlaylist();
+                    switchTab('playlist');
+                }
+                document.getElementById('loop-streaming').checked = !!data.loop_streaming;
+                document.getElementById('loop-delay').value = data.loop_delay != null ? data.loop_delay : 5;
+                document.getElementById('schedule-enabled').checked = !!data.schedule_enabled;
+                document.getElementById('schedule-start-time').value = data.schedule_start_time || '09:00';
+                document.getElementById('schedule-duration-hours').value = data.schedule_duration_hours != null ? data.schedule_duration_hours : 8;
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        function getLoopParams() {
+            const loopStreaming = document.getElementById('loop-streaming').checked;
+            const loopDelay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
+            return `&loop_streaming=${loopStreaming}&loop_delay=${loopDelay}`;
+        }
+
         // Config - Single File
         async function setSingleConfig() {
             const mediaKey = document.getElementById('single-media-key').value;
@@ -660,7 +717,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE}/streams/config?media_key=${encodeURIComponent(mediaKey)}`, {
+                const response = await fetch(`${API_BASE}/streams/config?media_key=${encodeURIComponent(mediaKey)}${getLoopParams()}`, {
                     method: 'POST'
                 });
                 const data = await response.json();
@@ -720,7 +777,7 @@
 
             const playlistStr = playlist.join(',');
             try {
-                const response = await fetch(`${API_BASE}/streams/config?playlist=${encodeURIComponent(playlistStr)}`, {
+                const response = await fetch(`${API_BASE}/streams/config?playlist=${encodeURIComponent(playlistStr)}${getLoopParams()}`, {
                     method: 'POST'
                 });
                 const data = await response.json();
@@ -732,6 +789,43 @@
                 }
             } catch (error) {
                 showAlert('Failed to set playlist', 'error');
+            }
+        }
+
+        async function saveLoopSettings() {
+            const loopStreaming = document.getElementById('loop-streaming').checked;
+            const loopDelay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
+            try {
+                const response = await fetch(`${API_BASE}/streams/config?loop_streaming=${loopStreaming}&loop_delay=${loopDelay}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showAlert('Loop settings saved', 'success');
+                } else {
+                    showAlert(data.detail?.error || 'Failed to save loop settings', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to save loop settings', 'error');
+            }
+        }
+
+        async function saveScheduleSettings() {
+            const scheduleEnabled = document.getElementById('schedule-enabled').checked;
+            const startTime = (document.getElementById('schedule-start-time').value || '09:00').trim();
+            const duration = Math.min(24, Math.max(0.5, parseFloat(document.getElementById('schedule-duration-hours').value) || 8));
+            try {
+                const response = await fetch(`${API_BASE}/streams/config?schedule_enabled=${scheduleEnabled}&schedule_start_time=${encodeURIComponent(startTime)}&schedule_duration_hours=${duration}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showAlert('Schedule saved. Stream will start at ' + startTime + ' and run ' + duration + 'h/day.', 'success');
+                } else {
+                    showAlert(data.detail?.error || 'Failed to save schedule', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to save schedule', 'error');
             }
         }
 

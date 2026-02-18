@@ -331,14 +331,11 @@ The worker will:
 
 #### Loop Streaming (Optional)
 
-Enable automatic looping to restart the stream when video ends:
+Enable automatic looping to restart the stream when video ends.
 
-```bash
-# Edit .env file
-nano .env
-```
+**From Dashboard (recommended):** Open the Stream Configuration panel → check "Auto loop when video ends" → set "Delay between loops (seconds)" → click "Save loop" or "Set Config"/"Set Playlist". The setting is stored in config and applied when you start the stream.
 
-Add or modify these variables:
+**From .env (fallback):** If no config is set, the worker uses environment variables:
 
 ```bash
 # Enable loop streaming
@@ -359,6 +356,19 @@ When enabled:
 - Background music/ambiance streams
 - Waiting screen streams
 - Scheduled content loops
+
+#### Daily Schedule (e.g. 8 jam/hari, auto tiap hari)
+
+Atur stream agar **otomatis mulai di jam yang sama setiap hari** dan berjalan **N jam**, lalu stop; besok di jam yang sama mulai lagi.
+
+**Dari Dashboard:** Stream Configuration → centang "Daily schedule" → isi **Mulai jam** (HH:MM, mis. 09:00) dan **Durasi (jam/hari)** (mis. 8) → "Save schedule". Pastikan config media/playlist sudah di-set dan controller berjalan (systemd/cron).
+
+**Perilaku:**
+- Controller mengecek setiap menit. Saat jam sudah mencapai "Mulai jam" dan stream belum jalan (dan hari ini belum pernah start), stream di-start.
+- Setelah **Durasi** jam, stream di-stop otomatis.
+- Besok di jam yang sama proses diulang (start → jalan N jam → stop).
+
+**Contoh:** Mulai jam 09:00, durasi 8 jam → live 09:00–17:00 setiap hari.
 
 ### 4. Check Status
 
