@@ -386,6 +386,9 @@
                         <div class="stat-value" id="current-media">-</div>
                     </div>
                 </div>
+                <p id="status-hint" class="status-hint" style="display: none; font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f5f5f5; border-radius: 6px;">
+                    💡 <strong>Running</strong> = kita sudah kirim sinyal ke YouTube. Di YouTube Studio bisa masih tampil <strong>Preparing</strong> beberapa detik–1 menit sebelum status berubah ke <strong>LIVE</strong>. Cek langsung di YouTube Studio untuk status siaran.
+                </p>
             </div>
 
             <div class="card">
@@ -570,6 +573,10 @@
                 // Update buttons
                 document.getElementById('btn-start').disabled = data.status === 'running';
                 document.getElementById('btn-stop').disabled = data.status !== 'running';
+
+                // Show hint when running (YouTube may still show "Preparing")
+                const hint = document.getElementById('status-hint');
+                if (hint) hint.style.display = data.status === 'running' ? 'block' : 'none';
 
             } catch (error) {
                 console.error('Failed to refresh status:', error);

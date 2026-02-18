@@ -390,6 +390,18 @@ Response:
 }
 ```
 
+#### Cek apa yang jalan di background
+
+- **Controller (API + dashboard) jalan atau tidak:**
+  - Pakai systemd: `sudo systemctl status stream-controller` (atau `systemctl --user status stream-controller` kalau pakai user service)
+  - Cek port 8000: `lsof -i :8000` atau `curl -s http://localhost:8000/health`
+  - Cek proses: `ps aux | grep uvicorn`
+- **Stream (worker) jalan atau tidak:**
+  - Paling gampang: `curl http://localhost:8000/streams/status` → lihat `"status": "running"` dan `worker_pid`
+  - Cek proses: `ps aux | grep worker.py` dan `ps aux | grep ffmpeg`
+
+Kalau controller tidak jalan, endpoint di atas tidak bisa diakses; pastikan controller dinyalakan dulu (systemd atau `python -m uvicorn controller.main:app --host 0.0.0.0 --port 8000`).
+
 ### 5. Stop Streaming
 
 ```bash
@@ -507,6 +519,14 @@ curl -X POST http://localhost:8000/streams/stop
    ```bash
    sudo journalctl -u stream-controller -f
    ```
+
+### Dashboard "Running" tapi YouTube tetap "Preparing"
+
+- **Running** di dashboard = aplikasi kita sudah mengirim sinyal ke YouTube (FFmpeg → RTMP jalan).
+- **Preparing** di YouTube = YouTube sudah terima koneksi tapi belum menganggap siaran "LIVE" (biasanya beberapa detik–1 menit).
+- **Cara handling:** Ini normal. Tunggu 1–2 menit; biasanya status YouTube berubah ke **LIVE**. Jika tetap Preparing lama: cek koneksi, bitrate/resolusi video, dan notifikasi di YouTube Studio. Di dashboard sekarang muncul hint saat status Running untuk mengingatkan bahwa status persisnya cek di YouTube Studio.
+- **Kalau pertama kali lama, stop lalu start lagi langsung connect:** Koneksi pertama ke ingest YouTube kadang lebih lambat; koneksi kedua sering langsung LIVE. Di FFmpeg sudah ditambah opsi `-flush_packets 1` dan `-avoid_negative_ts make_zero` (plus keyframe di awal untuk transcode) agar koneksi pertama lebih sering langsung diterima. Kalau tetap lebih enak stop→start, itu workaround yang aman.
+- **Sync status penuh** (tampilkan status YouTube di dashboard) butuh integrasi YouTube Data/Live API (broadcast ID + API key) dan belum ada di project ini.
 
 ### Stream not working on YouTube
 

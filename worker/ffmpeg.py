@@ -63,6 +63,10 @@ class FFmpegRunner:
             "-re",  # Read input at native frame rate
             "-i", self.input_url,
 
+            # Help YouTube go LIVE faster on first connect (avoid long "Preparing")
+            "-flush_packets", "1",       # Flush packets immediately so ingest sees data sooner
+            "-avoid_negative_ts", "make_zero",  # Avoid negative timestamps that can delay LIVE
+
             # Auto-reconnect flags
             "-reconnect", "1",
             "-reconnect_streamed", "1",
@@ -74,13 +78,14 @@ class FFmpegRunner:
             # Copy codec without re-encoding (MP4)
             cmd.extend(["-c", "copy"])
         else:
-            # Transcode to H.264/AAC for YouTube compatibility
+            # Transcode to H.264/AAC for YouTube compatibility; keyframe at start helps first connect
             cmd.extend([
                 "-c:v", "libx264",
                 "-preset", "medium",
                 "-b:v", "3000k",  # 3Mbps target
                 "-maxrate", "3000k",
                 "-bufsize", "6000k",
+                "-force_key_frames", "expr:gte(t,0)",  # Force keyframe at start for faster LIVE
                 "-c:a", "aac",
                 "-b:a", "128k",
                 "-ar", "44100",
