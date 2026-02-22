@@ -11,16 +11,19 @@ from pydantic import BaseModel, Field, field_validator
 
 class StreamStatus(str, Enum):
     """Stream status values."""
-    RUNNING = "running"
-    STOPPED = "stopped"
-    ERROR = "error"
+    STARTING = "starting"      # FFmpeg warming up, connecting to YouTube
+    STREAMING = "streaming"    # FFmpeg successfully sending data to YouTube
+    FAILED = "failed"          # Failed to connect or stream rejected
+    RUNNING = "running"        # Legacy - worker process is running (deprecated)
+    STOPPED = "stopped"        # Stream stopped
+    ERROR = "error"            # Worker crashed or unexpected error
 
 
 class StreamConfig(BaseModel):
     """
     Stream configuration (persisted to stream_config.json).
 
-    Note: Stream key is NOT persisted - only loaded from environment.
+    Stream key is encrypted before persistence for security.
 
     Supports two modes:
     1. Single file: Set media_key
@@ -28,6 +31,9 @@ class StreamConfig(BaseModel):
     """
     youtube_rtmp_url: str = Field(
         ..., description="YouTube RTMP server URL (without stream key)"
+    )
+    youtube_stream_key_encrypted: Optional[str] = Field(
+        default=None, description="Encrypted YouTube stream key"
     )
     media_key: Optional[str] = Field(
         default=None, description="Single media file key (use for single file mode)"

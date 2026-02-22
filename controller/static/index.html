@@ -29,6 +29,9 @@
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .header h1 {
@@ -162,7 +165,7 @@
             text-transform: uppercase;
         }
 
-        .status-running {
+        .status-running, .status-streaming {
             background: #c6f6d5;
             color: #22543d;
         }
@@ -172,9 +175,14 @@
             color: #742a2a;
         }
 
-        .status-error {
+        .status-error, .status-failed {
             background: #feebc8;
             color: #7c2d12;
+        }
+
+        .status-starting {
+            background: #bee3f8;
+            color: #2c5282;
         }
 
         .playlist-item {
@@ -349,18 +357,67 @@
         .loading {
             animation: spin 1s linear infinite;
         }
+
+        /* Modal styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            min-width: 350px;
+            max-width: 450px;
+        }
+
+        .modal-content h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>🎬 YouTube Stream Controller</h1>
-            <p>Manage your YouTube live streams with ease</p>
+            <div>
+                <h1>🎬 YouTube Stream Controller</h1>
+                <p>Manage your YouTube live streams with ease</p>
+            </div>
+            <button id="btn-logout" class="btn btn-danger" onclick="doLogout()" style="display: none;">
+                🚪 Logout
+            </button>
         </div>
 
         <!-- Alert -->
         <div id="alert" class="alert"></div>
+
+        <!-- Login Modal -->
+        <div id="login-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2>🔐 Login</h2>
+                <p style="margin-bottom: 20px; color: #666;">Enter PIN to access the dashboard</p>
+                <div class="form-group">
+                    <label>PIN</label>
+                    <input type="password" id="login-pin" placeholder="Enter PIN" maxlength="20" autofocus
+                           onkeypress="if(event.key === 'Enter') doLogin()">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="doLogin()">Login</button>
+                </div>
+            </div>
+        </div>
 
         <!-- Stats Grid -->
         <div class="grid">
@@ -438,6 +495,18 @@
             <!-- Config Card -->
             <div class="card">
                 <h2>⚙️ Stream Configuration</h2>
+
+                <!-- YouTube Stream Key -->
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>🔑 YouTube Stream Key</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="password" id="youtube-stream-key" placeholder="xxxx-xxxx-xxxx-xxxx">
+                        <button class="btn btn-primary" onclick="saveStreamKey()">Save</button>
+                    </div>
+                    <p style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Get your stream key from <a href="https://studio.youtube.com" target="_blank" style="color: #667eea;">YouTube Studio</a> → Go Live
+                    </p>
+                </div>
 
                 <div class="tab-buttons">
                     <button class="tab-btn active" onclick="switchTab('single')">Single File</button>
@@ -528,13 +597,97 @@
         const API_BASE = window.location.origin;
         let playlist = [];
         let selectedFile = null;
+        let authToken = localStorage.getItem('authToken') || null;
+
+        // Auth functions
+        async function checkAuth() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                // Token exists, check if valid
+                return true;
+            }
+
+            // No token - show login modal
+            showLoginModal();
+            return false;
+        }
+
+        function showLoginModal() {
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('login-pin').value = '';
+            document.getElementById('login-pin').focus();
+        }
+
+        function hideLoginModal() {
+            document.getElementById('login-modal').style.display = 'none';
+        }
+
+        async function doLogin() {
+            const pin = document.getElementById('login-pin').value.trim();
+
+            if (!pin) {
+                showAlert('Please enter PIN', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pin: pin})
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('authToken', data.token);
+                    authToken = data.token;
+                    hideLoginModal();
+                    showAlert('Login successful', 'success');
+                    document.getElementById('btn-logout').style.display = 'block';
+                    refreshStatus(); // Refresh after login
+                } else {
+                    showAlert(data.detail || 'Login failed', 'error');
+                }
+            } catch (error) {
+                showAlert('Login failed', 'error');
+            }
+        }
+
+        async function doLogout() {
+            try {
+                await fetch(`${API_BASE}/auth/logout`, {
+                    method: 'POST',
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+            } catch (error) {
+                // Ignore error
+            }
+
+            localStorage.removeItem('authToken');
+            authToken = null;
+            document.getElementById('btn-logout').style.display = 'none';
+            showAlert('Logged out', 'success');
+            showLoginModal();
+        }
+
+        function getAuthHeaders() {
+            return authToken ? {'Authorization': `Bearer ${authToken}`} : {};
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            refreshStatus();
-            loadStreamConfig();
-            loadStorageFiles();
-            setInterval(refreshStatus, 5000); // Auto-refresh every 5s
+            // Check auth first
+            if (checkAuth()) {
+                // If already logged in, show logout button
+                if (authToken) {
+                    document.getElementById('btn-logout').style.display = 'block';
+                }
+                refreshStatus();
+                loadStreamConfig();
+                loadStorageFiles();
+                setInterval(refreshStatus, 5000); // Auto-refresh every 5s
+            }
         });
 
         // Alert
@@ -548,7 +701,9 @@
         // Status
         async function refreshStatus() {
             try {
-                const response = await fetch(`${API_BASE}/streams/status`);
+                const response = await fetch(`${API_BASE}/streams/status`, {
+                    headers: getAuthHeaders()
+                });
                 const data = await response.json();
 
                 // Update UI
@@ -570,13 +725,30 @@
                     document.getElementById('uptime').textContent = '-';
                 }
 
-                // Update buttons
-                document.getElementById('btn-start').disabled = data.status === 'running';
-                document.getElementById('btn-stop').disabled = data.status !== 'running';
+                // Update buttons - can only start if stopped/error/failed
+                const activeStates = ['running', 'streaming', 'starting'];
+                document.getElementById('btn-start').disabled = activeStates.includes(data.status);
+                document.getElementById('btn-stop').disabled = !activeStates.includes(data.status);
 
-                // Show hint when running (YouTube may still show "Preparing")
+                // Show hint based on status
                 const hint = document.getElementById('status-hint');
-                if (hint) hint.style.display = data.status === 'running' ? 'block' : 'none';
+                if (hint) {
+                    if (data.status === 'starting') {
+                        hint.textContent = '⏳ Connecting to YouTube...';
+                        hint.style.display = 'block';
+                    } else if (data.status === 'streaming') {
+                        hint.textContent = '✅ Streaming to YouTube! Check YouTube Studio for LIVE status.';
+                        hint.style.display = 'block';
+                    } else if (data.status === 'failed') {
+                        hint.textContent = '❌ Failed to connect: ' + (data.error_message || 'Unknown error');
+                        hint.style.display = 'block';
+                    } else if (data.status === 'running') {
+                        hint.textContent = '💡 Running = sudah kirim sinyal ke YouTube. Cek YouTube Studio untuk status LIVE.';
+                        hint.style.display = 'block';
+                    } else {
+                        hint.style.display = 'none';
+                    }
+                }
 
             } catch (error) {
                 console.error('Failed to refresh status:', error);
@@ -586,7 +758,10 @@
         // Start Stream
         async function startStream() {
             try {
-                const response = await fetch(`${API_BASE}/streams/start`, { method: 'POST' });
+                const response = await fetch(`${API_BASE}/streams/start`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
                 const data = await response.json();
 
                 if (response.ok) {
@@ -603,7 +778,10 @@
         // Stop Stream
         async function stopStream() {
             try {
-                const response = await fetch(`${API_BASE}/streams/stop`, { method: 'POST' });
+                const response = await fetch(`${API_BASE}/streams/stop`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
                 const data = await response.json();
 
                 if (response.ok) {
@@ -672,6 +850,10 @@
                 };
 
                 xhr.open('POST', `${API_BASE}/upload`);
+                // Add auth header
+                if (authToken) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                }
                 xhr.send(formData);
 
             } catch (error) {
@@ -725,7 +907,8 @@
 
             try {
                 const response = await fetch(`${API_BASE}/streams/config?media_key=${encodeURIComponent(mediaKey)}${getLoopParams()}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: getAuthHeaders()
                 });
                 const data = await response.json();
 
@@ -785,7 +968,8 @@
             const playlistStr = playlist.join(',');
             try {
                 const response = await fetch(`${API_BASE}/streams/config?playlist=${encodeURIComponent(playlistStr)}${getLoopParams()}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: getAuthHeaders()
                 });
                 const data = await response.json();
 
@@ -799,12 +983,36 @@
             }
         }
 
+        async function saveStreamKey() {
+            const streamKey = document.getElementById('youtube-stream-key').value.trim();
+            if (!streamKey) {
+                showAlert('Please enter a stream key', 'error');
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/streams/config?youtube_stream_key=${encodeURIComponent(streamKey)}`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showAlert('Stream key saved securely (encrypted)', 'success');
+                    document.getElementById('youtube-stream-key').value = ''; // Clear for security
+                } else {
+                    showAlert(data.detail?.error || 'Failed to save stream key', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to save stream key', 'error');
+            }
+        }
+
         async function saveLoopSettings() {
             const loopStreaming = document.getElementById('loop-streaming').checked;
             const loopDelay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
             try {
                 const response = await fetch(`${API_BASE}/streams/config?loop_streaming=${loopStreaming}&loop_delay=${loopDelay}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: getAuthHeaders()
                 });
                 const data = await response.json();
                 if (response.ok) {
@@ -823,7 +1031,8 @@
             const duration = Math.min(24, Math.max(0.5, parseFloat(document.getElementById('schedule-duration-hours').value) || 8));
             try {
                 const response = await fetch(`${API_BASE}/streams/config?schedule_enabled=${scheduleEnabled}&schedule_start_time=${encodeURIComponent(startTime)}&schedule_duration_hours=${duration}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: getAuthHeaders()
                 });
                 const data = await response.json();
                 if (response.ok) {

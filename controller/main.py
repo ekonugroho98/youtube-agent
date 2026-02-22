@@ -11,11 +11,11 @@ from typing import Optional
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,6 +29,8 @@ from .models import (
 )
 from .persistence import StreamPersistence, ConfigNotFoundError, InvalidConfigError
 from .worker_manager import WorkerManager, WorkerManagerError
+from .encryption import encrypt, decrypt
+from .auth import get_auth_manager, get_token_from_header
 
 # Import storage client for file operations
 import sys
@@ -69,13 +71,12 @@ persistence: Optional[StreamPersistence] = None
 worker_manager: Optional[WorkerManager] = None
 storage_client: Optional[StorageClient] = None
 _schedule_task: Optional[asyncio.Task] = None
+auth_manager = get_auth_manager()
 
 
 def validate_environment():
     """Validate required environment variables on startup."""
     required_vars = [
-        "YOUTUBE_RTMP_URL",
-        "YOUTUBE_STREAM_KEY",
         "STORAGE_BUCKET",
         "STORAGE_ACCESS_KEY_ID",
         "STORAGE_SECRET_ACCESS_KEY",
@@ -86,6 +87,50 @@ def validate_environment():
         logger.error(f"Missing required environment variables: {', '.join(missing)}")
         raise RuntimeError(
             f"Missing required environment variables: {', '.join(missing)}"
+        )
+
+    # YOUTUBE_STREAM_KEY is optional (can be set from dashboard)
+    if not os.getenv("YOUTUBE_STREAM_KEY"):
+        logger.info("YOUTUBE_STREAM_KEY not set - can be configured from dashboard")
+
+    # Log if dashboard PIN is set
+    if os.getenv("DASHBOARD_PIN"):
+        logger.info("DASHBOARD_PIN is set - dashboard requires authentication")
+    else:
+        logger.warning("DASHBOARD_PIN not set - dashboard is UNPROTECTED!")
+
+
+# Pydantic models for auth
+class LoginRequest(BaseModel):
+    """Login request with PIN."""
+    pin: str
+
+
+class LoginResponse(BaseModel):
+    """Login response with session token."""
+    token: str
+    expires_in: int  # seconds
+
+
+def check_auth(request: Request) -> None:
+    """
+    Check authentication from request.
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    # Allow access if no PIN is set (dev mode)
+    if not auth_manager.pin:
+        return
+
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    token = get_token_from_header(auth_header)
+
+    if not token or not auth_manager.validate_token(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing authentication token"
         )
 
 
@@ -213,6 +258,7 @@ async def dashboard():
 
 @app.post("/upload")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     object_key: Optional[str] = Form(None)
 ):
@@ -226,6 +272,9 @@ async def upload_file(
     Returns:
         Uploaded file metadata
     """
+    # Check authentication
+    check_auth(request)
+
     if not storage_client:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -322,8 +371,77 @@ async def health_check():
         )
 
 
+@app.post("/auth/login")
+async def login(request: LoginRequest):
+    """
+    Authenticate with PIN and get session token.
+
+    Args:
+        request: Login request with PIN
+
+    Returns:
+        Session token with expiry time
+
+    Raises:
+        401: Invalid PIN
+    """
+    pin = request.pin
+
+    if not auth_manager.validate_pin(pin):
+        logger.warning(f"Failed login attempt with invalid PIN")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid PIN"
+        )
+
+    # Create session token
+    token = auth_manager.create_token()
+
+    logger.info("Successful login via dashboard")
+
+    return LoginResponse(
+        token=token,
+        expires_in=24 * 60 * 60  # 24 hours in seconds
+    )
+
+
+@app.post("/auth/logout")
+async def logout(request: Request):
+    """
+    Logout and revoke session token.
+
+    Args:
+        request: Request with Authorization header
+
+    Returns:
+        Success message
+    """
+    # Get token from header
+    auth_header = request.headers.get("Authorization")
+    token = get_token_from_header(auth_header)
+
+    if token:
+        auth_manager.revoke_token(token)
+        logger.info("User logged out")
+
+    return {"message": "Logged out successfully"}
+
+
+@app.get("/auth/status")
+async def auth_status():
+    """
+    Check if PIN authentication is required.
+
+    Returns:
+        JSON with pin_required flag
+    """
+    return {
+        "pin_required": bool(auth_manager.pin)
+    }
+
+
 @app.post("/streams/start")
-async def start_stream():
+async def start_stream(request: Request):
     """
     Start the stream worker.
 
@@ -334,6 +452,9 @@ async def start_stream():
         409: Worker already running
         500: Failed to start worker
     """
+    # Check authentication
+    check_auth(request)
+
     try:
         # Load config
         config = persistence.load_config()
@@ -421,9 +542,11 @@ async def get_stream_config():
 
 @app.post("/streams/config")
 async def update_stream_config(
+    request: Request,
     media_key: Optional[str] = None,
     playlist: Optional[str] = None,
     youtube_rtmp_url: Optional[str] = None,
+    youtube_stream_key: Optional[str] = None,
     loop_streaming: Optional[bool] = None,
     loop_delay: Optional[int] = None,
     schedule_enabled: Optional[bool] = None,
@@ -431,12 +554,13 @@ async def update_stream_config(
     schedule_duration_hours: Optional[float] = None,
 ):
     """
-    Update stream configuration (file/playlist, loop, daily schedule).
+    Update stream configuration (file/playlist, loop, daily schedule, stream key).
 
     Args:
         media_key: Single media file key (e.g., "smaller.mp4")
         playlist: Comma-separated list of media keys
         youtube_rtmp_url: RTMP URL (optional)
+        youtube_stream_key: YouTube stream key (optional, encrypted before saving)
         loop_streaming: Enable auto loop when video ends (optional)
         loop_delay: Seconds between loops 1-300 (optional)
         schedule_enabled: Enable daily schedule: start at same time, run N hours (optional)
@@ -446,6 +570,9 @@ async def update_stream_config(
     Returns:
         200: Config updated successfully
     """
+    # Check authentication
+    check_auth(request)
+
     try:
         existing = persistence.load_config_optional()
 
@@ -467,7 +594,8 @@ async def update_stream_config(
         elif existing:
             media_key = existing.media_key
             playlist_list = existing.playlist
-        else:
+        elif not youtube_stream_key:
+            # Only require media_key/playlist if not just updating stream key
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error": "Either media_key or playlist must be provided when no config exists"}
@@ -490,8 +618,19 @@ async def update_stream_config(
                 detail={"error": "schedule_duration_hours must be between 0.5 and 24"}
             )
 
+        # Handle stream key encryption
+        stream_key_encrypted = None
+        if youtube_stream_key:
+            # New stream key provided - encrypt it
+            stream_key_encrypted = encrypt(youtube_stream_key)
+            logger.info("New stream key encrypted and saved")
+        elif existing and existing.youtube_stream_key_encrypted:
+            # Keep existing encrypted stream key
+            stream_key_encrypted = existing.youtube_stream_key_encrypted
+
         config = StreamConfig(
             youtube_rtmp_url=rtmp_url,
+            youtube_stream_key_encrypted=stream_key_encrypted,
             media_key=media_key,
             playlist=playlist_list,
             loop_streaming=loop_streaming_val,
@@ -530,7 +669,7 @@ async def update_stream_config(
 
 
 @app.post("/streams/stop")
-async def stop_stream():
+async def stop_stream(request: Request):
     """
     Stop the stream worker.
 
@@ -540,11 +679,16 @@ async def stop_stream():
         200: Worker stopped successfully
         404: No worker running
     """
+    # Check authentication
+    check_auth(request)
+
     try:
         state = persistence.load_state()
 
-        if state.status != StreamStatus.RUNNING:
-            logger.info("Attempted to stop stream while not running")
+        # Can stop if status is one of the active states
+        active_statuses = (StreamStatus.RUNNING, StreamStatus.STARTING, StreamStatus.STREAMING)
+        if state.status not in active_statuses:
+            logger.info(f"Attempted to stop stream while not active (status: {state.status})")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
