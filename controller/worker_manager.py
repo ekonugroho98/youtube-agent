@@ -29,6 +29,7 @@ class WorkerManager:
     Manage worker subprocess lifecycle.
 
     Spawns, monitors, and terminates worker processes.
+    In 24/7 mode, auto-restarts worker on crash/error.
     """
 
     # Health check interval (seconds)
@@ -40,6 +41,9 @@ class WorkerManager:
     # Starting timeout - how long to wait before considering stream failed (seconds)
     STARTING_TIMEOUT = 30
 
+    # Auto-restart delay when worker crashes (24/7 mode)
+    AUTO_RESTART_DELAY = 10  # seconds
+
     def __init__(self, persistence: StreamPersistence):
         """
         Initialize worker manager.
@@ -50,8 +54,11 @@ class WorkerManager:
         self.persistence = persistence
         self.worker_process: Optional[asyncio.subprocess.Process] = None
         self._health_check_task: Optional[asyncio.Task] = None
+        self._auto_restart_task: Optional[asyncio.Task] = None
+        self._keepalive_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
         self.ffmpeg_monitor = FFmpegLogMonitor()
+        self._current_config: Optional[StreamConfig] = None
 
     async def start_worker(self, config: StreamConfig) -> None:
         """
@@ -66,7 +73,12 @@ class WorkerManager:
         if self.worker_process and not self.worker_process.returncode:
             raise WorkerManagerError("Worker is already running")
 
+        # Store config for auto-restart
+        self._current_config = config
+
         logger.info(f"Starting worker for media: {config.media_key}")
+        if config.always_on:
+            logger.info("24/7 always-on mode ENABLED - auto-restart on crash")
 
         # Reset FFmpeg monitor for new worker
         self.ffmpeg_monitor.reset()
@@ -149,6 +161,10 @@ class WorkerManager:
             # Start health checks
             self._start_health_checks()
             self._start_log_reader()
+
+            # Start auto-restart task for 24/7 mode
+            if config.always_on:
+                self._start_auto_restart_monitor()
 
         except Exception as e:
             raise WorkerManagerError(f"Failed to start worker: {str(e)}")
@@ -302,6 +318,14 @@ class WorkerManager:
         if self._health_check_task:
             self._health_check_task.cancel()
 
+        # Cancel auto-restart monitor
+        if self._auto_restart_task:
+            self._auto_restart_task.cancel()
+
+        # Cancel keepalive monitor
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+
         self._shutdown_event.set()
 
     def _start_health_checks(self) -> None:
@@ -325,19 +349,54 @@ class WorkerManager:
 
         # Check process exit code
         if self.worker_process.returncode is not None:
-            logger.warning(f"Worker exited with code: {self.worker_process.returncode}")
+            returncode = self.worker_process.returncode
+            logger.info(f"Worker exited with code: {returncode}")
 
-            # Update state to error
-            state = self.persistence.load_state()
-            state.status = StreamStatus.ERROR
-            state.worker_pid = None
-            state.exited_at = datetime.now().isoformat()
-            state.exit_code = self.worker_process.returncode
-            state.error_message = f"Worker exited unexpectedly with code {self.worker_process.returncode}"
-            self.persistence.save_state(state)
+            # Exit code 15 or -15 means SIGTERM (normal shutdown via stop button)
+            # Don't mark as error for intentional shutdown
+            if returncode in (15, -15):
+                logger.info("Worker shutdown via SIGTERM (normal)")
+                self.worker_process = None
+                self._shutdown_event.set()
+                return
 
-            self.worker_process = None
-            self._shutdown_event.set()
+            # Check if 24/7 mode is enabled for auto-restart
+            config = self._current_config
+            should_auto_restart = config and config.always_on
+
+            if should_auto_restart:
+                # 24/7 mode: trigger auto-restart
+                logger.warning(f"Worker crashed in 24/7 mode - scheduling auto-restart in {self.AUTO_RESTART_DELAY}s")
+
+                state = self.persistence.load_state()
+                state.status = StreamStatus.ERROR
+                state.worker_pid = None
+                state.exited_at = datetime.now().isoformat()
+                state.exit_code = returncode
+                state.error_message = f"Worker crashed (exit code {returncode}) - auto-restarting in 24/7 mode"
+                state.always_on_restart_count = state.always_on_restart_count + 1
+                self.persistence.save_state(state)
+
+                self.worker_process = None
+
+                # Trigger auto-restart
+                if self._auto_restart_task and not self._auto_restart_task.done():
+                    self._auto_restart_task.cancel()
+                self._auto_restart_task = asyncio.create_task(self._auto_restart_worker())
+            else:
+                # Normal mode: mark as error
+                logger.warning(f"Worker exited unexpectedly with code: {returncode}")
+
+                state = self.persistence.load_state()
+                state.status = StreamStatus.ERROR
+                state.worker_pid = None
+                state.exited_at = datetime.now().isoformat()
+                state.exit_code = returncode
+                state.error_message = f"Worker exited unexpectedly with code {returncode}"
+                self.persistence.save_state(state)
+
+                self.worker_process = None
+                self._shutdown_event.set()
 
         else:
             # Update health check timestamp
@@ -409,8 +468,63 @@ class WorkerManager:
                     state.error_message = error_msg or "FFmpeg connection failed"
                     self.persistence.save_state(state)
 
-                    # Stop worker on connection failure
+                    # Check if 24/7 mode is enabled
+                    config = self._current_config
+                    if config and config.always_on:
+                        logger.warning("FFmpeg failed in 24/7 mode - stopping for auto-restart")
+                        # Stop will trigger auto-restart via health check
                     await self.stop_worker()
 
         except Exception as e:
             logger.error(f"Failed to update status from FFmpeg state: {e}")
+
+    def _start_auto_restart_monitor(self) -> None:
+        """Start auto-restart monitor for 24/7 mode."""
+        # Auto-restart is triggered from health check when worker crashes
+        logger.debug("Auto-restart monitor enabled for 24/7 mode")
+
+    async def _auto_restart_worker(self) -> None:
+        """
+        Auto-restart worker after crash in 24/7 mode.
+
+        Waits for delay, then restarts the worker with the same config.
+        """
+        if not self._current_config:
+            logger.error("No config available for auto-restart")
+            return
+
+        logger.info(f"Waiting {self.AUTO_RESTART_DELAY}s before auto-restart...")
+        try:
+            await asyncio.wait_for(
+                self._shutdown_event.wait(),
+                timeout=self.AUTO_RESTART_DELAY
+            )
+            # Shutdown signal received during delay
+            logger.info("Shutdown signal received, canceling auto-restart")
+            return
+        except asyncio.TimeoutError:
+            # Delay complete, proceed with restart
+            pass
+
+        # Check if always_on is still enabled
+        config = self.persistence.load_config_optional()
+        if not config or not config.always_on:
+            logger.info("24/7 mode disabled, skipping auto-restart")
+            return
+
+        logger.info("Auto-restarting worker (24/7 mode)...")
+
+        # Clear the worker process reference
+        self.worker_process = None
+        self.ffmpeg_monitor.reset()
+
+        try:
+            # Start new worker
+            await self.start_worker(config)
+            logger.info(f"Worker auto-restarted successfully (restart #{self.persistence.load_state().always_on_restart_count})")
+        except WorkerManagerError as e:
+            logger.error(f"Auto-restart failed: {e}")
+            # Schedule another restart attempt
+            await asyncio.sleep(self.AUTO_RESTART_DELAY)
+            if self._current_config and self._current_config.always_on:
+                self._auto_restart_task = asyncio.create_task(self._auto_restart_worker())

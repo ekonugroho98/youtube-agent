@@ -521,6 +521,8 @@ async def get_stream_config():
                 "schedule_enabled": existing.schedule_enabled,
                 "schedule_start_time": existing.schedule_start_time,
                 "schedule_duration_hours": existing.schedule_duration_hours,
+                "always_on": existing.always_on,
+                "keepalive_interval": existing.keepalive_interval,
             }
         return {
             "media_key": None,
@@ -531,6 +533,8 @@ async def get_stream_config():
             "schedule_enabled": False,
             "schedule_start_time": "09:00",
             "schedule_duration_hours": 8,
+            "always_on": False,
+            "keepalive_interval": 300,
         }
     except Exception as e:
         logger.error(f"Failed to get config: {e}")
@@ -543,18 +547,20 @@ async def get_stream_config():
 @app.post("/streams/config")
 async def update_stream_config(
     request: Request,
-    media_key: Optional[str] = None,
-    playlist: Optional[str] = None,
-    youtube_rtmp_url: Optional[str] = None,
-    youtube_stream_key: Optional[str] = None,
-    loop_streaming: Optional[bool] = None,
-    loop_delay: Optional[int] = None,
-    schedule_enabled: Optional[bool] = None,
-    schedule_start_time: Optional[str] = None,
-    schedule_duration_hours: Optional[float] = None,
+    media_key: Optional[str] = Form(None),
+    playlist: Optional[str] = Form(None),
+    youtube_rtmp_url: Optional[str] = Form(None),
+    youtube_stream_key: Optional[str] = Form(None),
+    loop_streaming: Optional[bool] = Form(None),
+    loop_delay: Optional[int] = Form(None),
+    schedule_enabled: Optional[bool] = Form(None),
+    schedule_start_time: Optional[str] = Form(None),
+    schedule_duration_hours: Optional[float] = Form(None),
+    always_on: Optional[bool] = Form(None),
+    keepalive_interval: Optional[int] = Form(None),
 ):
     """
-    Update stream configuration (file/playlist, loop, daily schedule, stream key).
+    Update stream configuration (file/playlist, loop, daily schedule, stream key, 24/7 mode).
 
     Args:
         media_key: Single media file key (e.g., "smaller.mp4")
@@ -566,6 +572,8 @@ async def update_stream_config(
         schedule_enabled: Enable daily schedule: start at same time, run N hours (optional)
         schedule_start_time: Daily start time HH:MM 24h (optional, e.g. 09:00)
         schedule_duration_hours: Hours to run each day 0.5-24 (optional, e.g. 8)
+        always_on: Enable 24/7 mode - auto-restart on crash/error (optional)
+        keepalive_interval: Keepalive check interval in seconds 60-3600 (optional, default 300)
 
     Returns:
         200: Config updated successfully
@@ -594,8 +602,8 @@ async def update_stream_config(
         elif existing:
             media_key = existing.media_key
             playlist_list = existing.playlist
-        elif not youtube_stream_key:
-            # Only require media_key/playlist if not just updating stream key
+        else:
+            # No media_key, playlist, or existing config - error
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error": "Either media_key or playlist must be provided when no config exists"}
@@ -618,6 +626,14 @@ async def update_stream_config(
                 detail={"error": "schedule_duration_hours must be between 0.5 and 24"}
             )
 
+        always_on_val = always_on if always_on is not None else (existing.always_on if existing else False)
+        keepalive_interval_val = keepalive_interval if keepalive_interval is not None else (existing.keepalive_interval if existing else 300)
+        if keepalive_interval_val is not None and (keepalive_interval_val < 60 or keepalive_interval_val > 3600):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "keepalive_interval must be between 60 and 3600"}
+            )
+
         # Handle stream key encryption
         stream_key_encrypted = None
         if youtube_stream_key:
@@ -638,12 +654,14 @@ async def update_stream_config(
             schedule_enabled=schedule_enabled_val,
             schedule_start_time=schedule_start_val,
             schedule_duration_hours=schedule_duration_val,
+            always_on=always_on_val,
+            keepalive_interval=keepalive_interval_val,
         )
 
         persistence.save_config(config)
 
         mode = "playlist" if playlist_list else "single"
-        logger.info(f"Stream config updated: mode={mode}, media_key={media_key}, schedule_enabled={schedule_enabled_val}")
+        logger.info(f"Stream config updated: mode={mode}, media_key={media_key}, schedule_enabled={schedule_enabled_val}, always_on={always_on_val}")
 
         return {
             "status": "config_updated",
@@ -656,6 +674,8 @@ async def update_stream_config(
             "schedule_enabled": config.schedule_enabled,
             "schedule_start_time": config.schedule_start_time,
             "schedule_duration_hours": config.schedule_duration_hours,
+            "always_on": config.always_on,
+            "keepalive_interval": config.keepalive_interval,
         }
 
     except HTTPException:
@@ -736,6 +756,8 @@ async def get_stream_status():
             error_message=state.error_message,
             media_key=state.media_key,
             rtmp_url=config.youtube_rtmp_url,  # RTMP URL WITHOUT stream key
+            always_on=config.always_on,
+            always_on_restart_count=state.always_on_restart_count,
         )
 
     except (ConfigNotFoundError, InvalidConfigError) as e:

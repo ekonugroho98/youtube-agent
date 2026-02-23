@@ -57,6 +57,13 @@ class StreamConfig(BaseModel):
     schedule_duration_hours: float = Field(
         default=8, ge=0.5, le=24, description="How many hours to run each day (0.5-24)"
     )
+    # 24/7 always-on mode: auto-restart on crash, keep monitoring
+    always_on: bool = Field(
+        default=False, description="24/7 mode - auto-restart on crash/error for continuous streaming"
+    )
+    keepalive_interval: int = Field(
+        default=300, ge=60, le=3600, description="Keepalive check interval in seconds (60-3600, default 300)"
+    )
 
     @field_validator('youtube_rtmp_url')
     @classmethod
@@ -143,6 +150,12 @@ class StreamState(BaseModel):
     last_scheduled_start_date: Optional[str] = Field(
         default=None, description="Last calendar date (YYYY-MM-DD) stream was started (avoids duplicate daily start)"
     )
+    always_on_restart_count: int = Field(
+        default=0, description="Number of automatic restarts in 24/7 mode"
+    )
+    last_keepalive_check: Optional[str] = Field(
+        default=None, description="ISO 8601 timestamp of last keepalive check"
+    )
 
     @property
     def uptime_seconds(self) -> Optional[int]:
@@ -179,3 +192,5 @@ class StreamStatusResponse(BaseModel):
     error_message: Optional[str]
     media_key: Optional[str]
     rtmp_url: str  # Note: RTMP URL WITHOUT stream key for security
+    always_on: bool = False
+    always_on_restart_count: int = 0

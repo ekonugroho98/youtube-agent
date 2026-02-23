@@ -28,15 +28,25 @@ SUCCESS_PATTERNS = [
     r"Server\s+returned:\s+200\s+OK",
     r"rtmp://.*:\s*OK",
 
-    # FFmpeg is sending frames
-    r"frame=\s+\d+\s+fps=",
-    r"size=\s+\d+\s+time=",
-    r"bitrate=\s+\d+\.?\d*kbits/s",
+    # FFmpeg is sending frames - these are the most reliable indicators
+    r"frame=\s*\d+",
+    r"fps=\s*\d+",
+    r"q=\s*\d",
+
+    # Output progress indicators
+    r"size=\s*\d+",
+    r"time=\s+\d+:\d+:\d+\.\d+",
+    r"bitrate=\s*\d+\.?\d*kbits/s",
+    r"speed=\s+",
 
     # RTMP specific success messages
-    r"rtmp\s+closing",
-    r"rtmp\s+streaming",
+    r"rtmp\s+uploading",
+    r"rtmp\s+writing",
     r"Progress:\s+\d+%",
+
+    # General streaming indicators
+    r"Opening.*\s+for\s+output",
+    r"Output\s+#0.*rtmp",
 ]
 
 # Patterns that indicate connection failure
@@ -58,11 +68,12 @@ FAILURE_PATTERNS = [
     r"Stream\s+key\s+invalid",
     r"Authentication\s+failed",
     r"Access\s+denied",
+    r"Connection\s+rejected",
 
-    # FFmpeg fatal errors
-    r"Exiting\s+normally,\s+received\s+signal\s+15",
+    # FFmpeg fatal errors (not including normal shutdown)
     r"Input/output\s+error",
     r"Broken\s+pipe",
+    r"Connection\s+reset",
 
     # RTMP specific errors
     r"rtmp\s+error",
