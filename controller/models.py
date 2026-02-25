@@ -64,6 +64,16 @@ class StreamConfig(BaseModel):
     keepalive_interval: int = Field(
         default=300, ge=60, le=3600, description="Keepalive check interval in seconds (60-3600, default 300)"
     )
+    # YouTube API v3 monitoring (optional, API key based - read only)
+    youtube_api_enabled: bool = Field(
+        default=False, description="Enable YouTube API monitoring (viewer count, live status)"
+    )
+    youtube_channel_id: Optional[str] = Field(
+        default=None, description="YouTube channel ID for auto-detecting live streams"
+    )
+    youtube_monitor_interval: int = Field(
+        default=30, ge=10, le=300, description="YouTube API polling interval in seconds (10-300)"
+    )
 
     @field_validator('youtube_rtmp_url')
     @classmethod
@@ -156,6 +166,28 @@ class StreamState(BaseModel):
     last_keepalive_check: Optional[str] = Field(
         default=None, description="ISO 8601 timestamp of last keepalive check"
     )
+    # YouTube API monitoring state
+    youtube_video_id: Optional[str] = Field(
+        default=None, description="Currently detected YouTube live video ID"
+    )
+    youtube_is_live: bool = Field(
+        default=False, description="Whether YouTube reports the stream as live"
+    )
+    youtube_concurrent_viewers: Optional[int] = Field(
+        default=None, description="Concurrent viewer count from YouTube"
+    )
+    youtube_view_count: Optional[int] = Field(
+        default=None, description="Total view count from YouTube"
+    )
+    youtube_like_count: Optional[int] = Field(
+        default=None, description="Like count from YouTube"
+    )
+    youtube_stream_title: Optional[str] = Field(
+        default=None, description="Live stream title from YouTube"
+    )
+    youtube_last_poll: Optional[str] = Field(
+        default=None, description="ISO 8601 timestamp of last YouTube API poll"
+    )
 
     @property
     def uptime_seconds(self) -> Optional[int]:
@@ -194,3 +226,11 @@ class StreamStatusResponse(BaseModel):
     rtmp_url: str  # Note: RTMP URL WITHOUT stream key for security
     always_on: bool = False
     always_on_restart_count: int = 0
+    # YouTube API monitoring
+    youtube_api_enabled: bool = False
+    youtube_is_live: bool = False
+    youtube_video_id: Optional[str] = None
+    youtube_concurrent_viewers: Optional[int] = None
+    youtube_view_count: Optional[int] = None
+    youtube_like_count: Optional[int] = None
+    youtube_stream_title: Optional[str] = None

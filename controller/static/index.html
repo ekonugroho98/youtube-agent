@@ -374,6 +374,68 @@
             animation: spin 1s linear infinite;
         }
 
+        /* YouTube API styles */
+        .yt-live-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .yt-live-badge.live {
+            background: #e53e3e;
+            color: white;
+        }
+
+        .yt-live-badge.offline {
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .yt-viewers {
+            font-size: 28px;
+            font-weight: 700;
+            color: #e53e3e;
+        }
+
+        .yt-stat-row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .yt-stat-mini {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .yt-stat-mini strong {
+            font-size: 16px;
+            color: #333;
+            display: block;
+        }
+
+        .yt-api-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .yt-api-badge.active {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .yt-api-badge.inactive {
+            background: #e0e0e0;
+            color: #666;
+        }
+
         /* Modal styles */
         .modal {
             position: fixed;
@@ -482,6 +544,40 @@
                         🔄 Refresh
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- YouTube Live Status Card -->
+        <div id="youtube-card" class="card" style="display: none; margin-bottom: 30px;">
+            <h2>
+                YouTube Live Monitor
+                <span id="yt-api-badge" class="yt-api-badge inactive">API OFF</span>
+            </h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">YouTube Status</div>
+                    <div class="stat-value">
+                        <span id="yt-live-badge" class="yt-live-badge offline">OFFLINE</span>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Viewers</div>
+                    <div class="stat-value yt-viewers" id="yt-viewers">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Views</div>
+                    <div class="stat-value" id="yt-views">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Likes</div>
+                    <div class="stat-value" id="yt-likes">-</div>
+                </div>
+            </div>
+            <div id="yt-stream-title" style="margin-top: 12px; font-size: 13px; color: #666; display: none;">
+                <strong>Title:</strong> <span id="yt-title-text">-</span>
+            </div>
+            <div id="yt-video-link" style="margin-top: 8px; display: none;">
+                <a id="yt-video-url" href="#" target="_blank" style="color: #667eea; font-size: 13px;">Watch on YouTube</a>
             </div>
         </div>
 
@@ -612,6 +708,31 @@
                         <button class="btn btn-primary" onclick="saveAlwaysOnSettings()">Save 24/7</button>
                     </div>
                     <p style="font-size: 12px; color: #666; margin-top: 8px;">24/7 mode akan otomatis restart worker jika crash. Best untuk streaming non-stop.</p>
+                </div>
+
+                <!-- YouTube API Monitoring -->
+                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="yt-api-enabled" style="width: 18px; height: 18px;">
+                        <span>YouTube API Monitor (viewer count, live status)</span>
+                    </label>
+                    <div id="yt-api-settings" style="margin-top: 10px;">
+                        <div class="form-group">
+                            <label>YouTube Channel ID</label>
+                            <input type="text" id="yt-channel-id" placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx">
+                            <p style="font-size: 12px; color: #666; margin-top: 4px;">
+                                Cari channel ID di <a href="https://www.youtube.com/account_advanced" target="_blank" style="color: #667eea;">YouTube Settings</a> > Advanced
+                            </p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label style="margin: 0;">Poll interval (seconds)</label>
+                            <input type="number" id="yt-monitor-interval" min="10" max="300" value="30" style="width: 80px;">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="btn btn-primary" onclick="saveYouTubeAPISettings()">Save YouTube API</button>
+                            <button class="btn" style="background: #f7fafc; color: #333;" onclick="validateYouTubeSetup()">Test Connection</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -804,6 +925,9 @@
                     }
                 }
 
+                // Update YouTube live status
+                updateYouTubeStatus(data);
+
             } catch (error) {
                 console.error('Failed to refresh status:', error);
             }
@@ -941,6 +1065,12 @@
                 document.getElementById('schedule-duration-hours').value = data.schedule_duration_hours != null ? data.schedule_duration_hours : 8;
                 document.getElementById('always-on').checked = !!data.always_on;
                 document.getElementById('keepalive-interval').value = data.keepalive_interval != null ? data.keepalive_interval : 300;
+
+                // YouTube API settings
+                document.getElementById('yt-api-enabled').checked = !!data.youtube_api_enabled;
+                document.getElementById('yt-channel-id').value = data.youtube_channel_id || '';
+                document.getElementById('yt-monitor-interval').value = data.youtube_monitor_interval != null ? data.youtube_monitor_interval : 30;
+                updateYouTubeCardVisibility(!!data.youtube_api_enabled);
 
                 // Update 24/7 badge
                 updateAlwaysOnBadge(!!data.always_on);
@@ -1136,6 +1266,138 @@
             } catch (error) {
                 showAlert('Failed to save 24/7 settings', 'error');
             }
+        }
+
+        // ==================== YouTube API Functions ====================
+
+        async function saveYouTubeAPISettings() {
+            const enabled = document.getElementById('yt-api-enabled').checked;
+            const channelId = document.getElementById('yt-channel-id').value.trim();
+            const interval = Math.min(300, Math.max(10, parseInt(document.getElementById('yt-monitor-interval').value, 10) || 30));
+
+            if (enabled && !channelId) {
+                showAlert('Please enter your YouTube Channel ID', 'error');
+                return;
+            }
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('youtube_api_enabled', enabled);
+                if (channelId) formData.append('youtube_channel_id', channelId);
+                formData.append('youtube_monitor_interval', interval);
+
+                const response = await fetch(`${API_BASE}/youtube/config`, {
+                    method: 'POST',
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData.toString()
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert(enabled ? 'YouTube API monitoring enabled!' : 'YouTube API monitoring disabled', 'success');
+                    updateYouTubeCardVisibility(enabled);
+                } else {
+                    showAlert(data.detail?.error || 'Failed to save YouTube API settings', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to save YouTube API settings', 'error');
+            }
+        }
+
+        async function validateYouTubeSetup() {
+            try {
+                const response = await fetch(`${API_BASE}/youtube/validate`, {
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+
+                if (data.api_key_valid) {
+                    let msg = 'API Key: Valid';
+                    if (data.channel_valid) {
+                        msg += ' | Channel: ' + (data.channel_info?.title || 'Valid');
+                    } else {
+                        msg += ' | Channel: ' + (data.channel_error || 'Not set or invalid');
+                    }
+                    showAlert(msg, 'success');
+                } else {
+                    showAlert('API Key invalid or not configured. Set YOUTUBE_API_KEY in .env', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to validate YouTube setup', 'error');
+            }
+        }
+
+        function updateYouTubeCardVisibility(enabled) {
+            const card = document.getElementById('youtube-card');
+            const badge = document.getElementById('yt-api-badge');
+            if (enabled) {
+                card.style.display = 'block';
+                badge.textContent = 'API ON';
+                badge.className = 'yt-api-badge active';
+            } else {
+                card.style.display = 'none';
+                badge.textContent = 'API OFF';
+                badge.className = 'yt-api-badge inactive';
+            }
+        }
+
+        function updateYouTubeStatus(data) {
+            // Show/hide card based on API enabled
+            updateYouTubeCardVisibility(data.youtube_api_enabled);
+
+            if (!data.youtube_api_enabled) return;
+
+            // Update live badge
+            const liveBadge = document.getElementById('yt-live-badge');
+            if (data.youtube_is_live) {
+                liveBadge.textContent = 'LIVE';
+                liveBadge.className = 'yt-live-badge live';
+            } else {
+                liveBadge.textContent = 'OFFLINE';
+                liveBadge.className = 'yt-live-badge offline';
+            }
+
+            // Update viewers
+            const viewers = document.getElementById('yt-viewers');
+            viewers.textContent = data.youtube_concurrent_viewers != null ? formatNumber(data.youtube_concurrent_viewers) : '-';
+
+            // Update views & likes
+            document.getElementById('yt-views').textContent = data.youtube_view_count != null ? formatNumber(data.youtube_view_count) : '-';
+            document.getElementById('yt-likes').textContent = data.youtube_like_count != null ? formatNumber(data.youtube_like_count) : '-';
+
+            // Update viewers - show 0 instead of dash when live but no viewers data
+            if (data.youtube_is_live && data.youtube_concurrent_viewers == null) {
+                viewers.textContent = '0';
+            }
+
+            // Update stream title (decode HTML entities)
+            const titleEl = document.getElementById('yt-stream-title');
+            if (data.youtube_stream_title) {
+                const decoded = new DOMParser().parseFromString(data.youtube_stream_title, 'text/html').body.textContent;
+                document.getElementById('yt-title-text').textContent = decoded;
+                titleEl.style.display = 'block';
+            } else {
+                titleEl.style.display = 'none';
+            }
+
+            // Update video link
+            const linkEl = document.getElementById('yt-video-link');
+            if (data.youtube_video_id) {
+                document.getElementById('yt-video-url').href = `https://www.youtube.com/watch?v=${data.youtube_video_id}`;
+                linkEl.style.display = 'block';
+            } else {
+                linkEl.style.display = 'none';
+            }
+        }
+
+        function formatNumber(num) {
+            if (num == null) return '-';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
         }
 
         // Tabs

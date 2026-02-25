@@ -71,6 +71,8 @@ persistence: Optional[StreamPersistence] = None
 worker_manager: Optional[WorkerManager] = None
 storage_client: Optional[StorageClient] = None
 _schedule_task: Optional[asyncio.Task] = None
+_youtube_monitor_task: Optional[asyncio.Task] = None
+youtube_client = None  # Optional[YouTubeAPIClient]
 auth_manager = get_auth_manager()
 
 
@@ -172,9 +174,28 @@ async def startup_event():
         logger.error(f"Failed to initialize storage client: {e}")
         raise
 
+    # Initialize YouTube API client (optional)
+    global youtube_client
+    yt_api_key = os.getenv("YOUTUBE_API_KEY")
+    if yt_api_key:
+        try:
+            from .youtube_api import YouTubeAPIClient
+            yt_channel_id = os.getenv("YOUTUBE_CHANNEL_ID")
+            youtube_client = YouTubeAPIClient(api_key=yt_api_key, channel_id=yt_channel_id)
+            logger.info(f"YouTube API client initialized (channel: {yt_channel_id or 'not set'})")
+        except Exception as e:
+            logger.warning(f"Failed to initialize YouTube API client: {e}")
+            youtube_client = None
+    else:
+        logger.info("YouTube API not configured (YOUTUBE_API_KEY not set)")
+
     # Start daily schedule task (start/stop stream by schedule)
     global _schedule_task
     _schedule_task = asyncio.create_task(_schedule_loop())
+
+    # Start YouTube monitor task (if enabled)
+    global _youtube_monitor_task
+    _youtube_monitor_task = asyncio.create_task(_youtube_monitor_loop())
 
 
 async def _schedule_loop() -> None:
@@ -232,14 +253,79 @@ async def _schedule_loop() -> None:
             logger.error(f"Schedule loop error: {e}")
 
 
+async def _youtube_monitor_loop() -> None:
+    """
+    Background task: poll YouTube API for live stream status, viewer count, etc.
+    Only runs when youtube_api_enabled is True in config and youtube_client is available.
+    """
+    while True:
+        try:
+            await asyncio.sleep(3)  # Short initial delay before first poll
+            if not persistence or not youtube_client:
+                await asyncio.sleep(30)
+                continue
+
+            config = persistence.load_config_optional()
+            if not config or not config.youtube_api_enabled:
+                await asyncio.sleep(30)
+                continue
+
+            # Update channel_id if changed in config
+            if config.youtube_channel_id and config.youtube_channel_id != youtube_client.channel_id:
+                youtube_client.channel_id = config.youtube_channel_id
+
+            if not youtube_client.channel_id:
+                await asyncio.sleep(60)
+                continue
+
+            state = persistence.load_state()
+
+            try:
+                live_status = await youtube_client.get_live_status()
+
+                state.youtube_is_live = live_status.get('is_live', False)
+                state.youtube_video_id = live_status.get('video_id')
+                state.youtube_concurrent_viewers = live_status.get('concurrent_viewers')
+                state.youtube_view_count = live_status.get('view_count')
+                state.youtube_like_count = live_status.get('like_count')
+                state.youtube_stream_title = live_status.get('title')
+                state.youtube_last_poll = datetime.now().isoformat()
+
+                persistence.save_state(state)
+
+                if live_status.get('is_live'):
+                    viewers = live_status.get('concurrent_viewers', '?')
+                    logger.debug(f"YouTube live: {viewers} viewers")
+
+            except Exception as e:
+                logger.warning(f"YouTube API poll error: {e}")
+                # Don't update state on error, keep last known values
+
+            # Wait for configured interval
+            interval = config.youtube_monitor_interval if config else 30
+            await asyncio.sleep(interval)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"YouTube monitor loop error: {e}")
+            await asyncio.sleep(30)
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown."""
-    global _schedule_task
+    global _schedule_task, _youtube_monitor_task
     if _schedule_task:
         _schedule_task.cancel()
         try:
             await _schedule_task
+        except asyncio.CancelledError:
+            pass
+    if _youtube_monitor_task:
+        _youtube_monitor_task.cancel()
+        try:
+            await _youtube_monitor_task
         except asyncio.CancelledError:
             pass
     logger.info("Shutting down stream controller...")
@@ -523,6 +609,9 @@ async def get_stream_config():
                 "schedule_duration_hours": existing.schedule_duration_hours,
                 "always_on": existing.always_on,
                 "keepalive_interval": existing.keepalive_interval,
+                "youtube_api_enabled": existing.youtube_api_enabled,
+                "youtube_channel_id": existing.youtube_channel_id,
+                "youtube_monitor_interval": existing.youtube_monitor_interval,
             }
         return {
             "media_key": None,
@@ -535,6 +624,9 @@ async def get_stream_config():
             "schedule_duration_hours": 8,
             "always_on": False,
             "keepalive_interval": 300,
+            "youtube_api_enabled": False,
+            "youtube_channel_id": None,
+            "youtube_monitor_interval": 30,
         }
     except Exception as e:
         logger.error(f"Failed to get config: {e}")
@@ -758,6 +850,14 @@ async def get_stream_status():
             rtmp_url=config.youtube_rtmp_url,  # RTMP URL WITHOUT stream key
             always_on=config.always_on,
             always_on_restart_count=state.always_on_restart_count,
+            # YouTube API monitoring
+            youtube_api_enabled=config.youtube_api_enabled,
+            youtube_is_live=state.youtube_is_live,
+            youtube_video_id=state.youtube_video_id,
+            youtube_concurrent_viewers=state.youtube_concurrent_viewers,
+            youtube_view_count=state.youtube_view_count,
+            youtube_like_count=state.youtube_like_count,
+            youtube_stream_title=state.youtube_stream_title,
         )
 
     except (ConfigNotFoundError, InvalidConfigError) as e:
@@ -766,3 +866,158 @@ async def get_stream_status():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Configuration error", "message": str(e)}
         )
+
+
+# ==================== YouTube API Endpoints ====================
+
+@app.get("/youtube/status")
+async def youtube_live_status():
+    """
+    Get YouTube live stream status from API.
+
+    Returns real-time data: is_live, viewer count, likes, video title.
+    Falls back to cached state if API call fails.
+    """
+    if not youtube_client:
+        return {
+            "enabled": False,
+            "error": "YouTube API not configured (set YOUTUBE_API_KEY)"
+        }
+
+    config = persistence.load_config_optional()
+    if not config or not config.youtube_api_enabled:
+        return {
+            "enabled": False,
+            "error": "YouTube API monitoring is disabled"
+        }
+
+    # Return cached state from background monitor
+    state = persistence.load_state()
+
+    # If no poll yet, do a live API call now
+    if not state.youtube_last_poll and youtube_client.channel_id:
+        try:
+            live_status = await youtube_client.get_live_status()
+            state.youtube_is_live = live_status.get('is_live', False)
+            state.youtube_video_id = live_status.get('video_id')
+            state.youtube_concurrent_viewers = live_status.get('concurrent_viewers')
+            state.youtube_view_count = live_status.get('view_count')
+            state.youtube_like_count = live_status.get('like_count')
+            state.youtube_stream_title = live_status.get('title')
+            state.youtube_last_poll = datetime.now().isoformat()
+            persistence.save_state(state)
+        except Exception as e:
+            logger.warning(f"YouTube live API call failed: {e}")
+
+    return {
+        "enabled": True,
+        "is_live": state.youtube_is_live,
+        "video_id": state.youtube_video_id,
+        "concurrent_viewers": state.youtube_concurrent_viewers,
+        "view_count": state.youtube_view_count,
+        "like_count": state.youtube_like_count,
+        "stream_title": state.youtube_stream_title,
+        "last_poll": state.youtube_last_poll,
+    }
+
+
+@app.post("/youtube/config")
+async def update_youtube_config(
+    request: Request,
+    youtube_api_enabled: Optional[bool] = Form(None),
+    youtube_channel_id: Optional[str] = Form(None),
+    youtube_monitor_interval: Optional[int] = Form(None),
+):
+    """
+    Update YouTube API configuration.
+
+    Args:
+        youtube_api_enabled: Enable/disable YouTube API monitoring
+        youtube_channel_id: YouTube channel ID
+        youtube_monitor_interval: Polling interval in seconds (10-300)
+    """
+    check_auth(request)
+
+    try:
+        existing = persistence.load_config_optional()
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "No stream config exists yet. Set stream config first."}
+            )
+
+        if youtube_api_enabled is not None:
+            existing.youtube_api_enabled = youtube_api_enabled
+        if youtube_channel_id is not None:
+            existing.youtube_channel_id = youtube_channel_id.strip() or None
+        if youtube_monitor_interval is not None:
+            if youtube_monitor_interval < 10 or youtube_monitor_interval > 300:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "youtube_monitor_interval must be between 10 and 300"}
+                )
+            existing.youtube_monitor_interval = youtube_monitor_interval
+
+        persistence.save_config(existing)
+
+        # Update youtube_client channel_id if changed
+        if youtube_client and existing.youtube_channel_id:
+            youtube_client.channel_id = existing.youtube_channel_id
+
+        logger.info(f"YouTube API config updated: enabled={existing.youtube_api_enabled}, channel={existing.youtube_channel_id}")
+
+        return {
+            "status": "youtube_config_updated",
+            "youtube_api_enabled": existing.youtube_api_enabled,
+            "youtube_channel_id": existing.youtube_channel_id,
+            "youtube_monitor_interval": existing.youtube_monitor_interval,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update YouTube config: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to update YouTube config", "message": str(e)}
+        )
+
+
+@app.get("/youtube/validate")
+async def validate_youtube_setup(request: Request):
+    """
+    Validate YouTube API key and channel ID.
+
+    Returns validation results for troubleshooting.
+    """
+    check_auth(request)
+
+    if not youtube_client:
+        return {
+            "api_key_valid": False,
+            "error": "YouTube API not configured (set YOUTUBE_API_KEY)"
+        }
+
+    result = {"api_key_valid": False, "channel_valid": False, "channel_info": None}
+
+    # Validate API key
+    try:
+        result["api_key_valid"] = await youtube_client.validate_api_key()
+    except Exception as e:
+        result["api_key_error"] = str(e)
+
+    # Validate channel ID
+    config = persistence.load_config_optional()
+    channel_id = config.youtube_channel_id if config else None
+    if channel_id and result["api_key_valid"]:
+        try:
+            channel_info = await youtube_client.validate_channel_id(channel_id)
+            if channel_info:
+                result["channel_valid"] = True
+                result["channel_info"] = channel_info
+            else:
+                result["channel_error"] = "Channel not found"
+        except Exception as e:
+            result["channel_error"] = str(e)
+
+    return result
