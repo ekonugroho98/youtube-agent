@@ -69,6 +69,7 @@ class StorageClient:
         self.access_key = os.getenv("STORAGE_ACCESS_KEY_ID")
         self.secret_key = os.getenv("STORAGE_SECRET_ACCESS_KEY")
         self.region = os.getenv("STORAGE_REGION", "auto")
+        self.endpoint = os.getenv("R2_ENDPOINT") if self.provider == "cloudflare" else os.getenv("GCS_ENDPOINT")
 
         # Validate required credentials
         if not all([self.bucket_name, self.access_key, self.secret_key]):
@@ -87,6 +88,31 @@ class StorageClient:
         # Configure boto3 client
         self._init_client()
 
+    @classmethod
+    def from_config(
+        cls,
+        bucket: str,
+        access_key: str,
+        secret_key: str,
+        endpoint: Optional[str] = None,
+        provider: str = "cloudflare",
+        region: str = "auto",
+    ) -> "StorageClient":
+        """
+        Create a StorageClient with explicit credentials (no env vars).
+
+        Used for multi-profile support where each profile has its own bucket.
+        """
+        instance = object.__new__(cls)
+        instance.provider = provider
+        instance.bucket_name = bucket
+        instance.access_key = access_key
+        instance.secret_key = secret_key
+        instance.region = region
+        instance.endpoint = endpoint
+        instance._init_client()
+        return instance
+
     def _init_client(self):
         """Initialize boto3 client based on provider."""
         from botocore.config import Config
@@ -97,20 +123,15 @@ class StorageClient:
         }
 
         if self.provider == "cloudflare":
-            # Cloudflare R2 uses account-specific endpoint
-            # User should set R2_ENDPOINT or use default
-            endpoint = os.getenv("R2_ENDPOINT")
-            if endpoint:
-                config['endpoint_url'] = endpoint
-            # R2 requires signature version v4
+            if self.endpoint:
+                config['endpoint_url'] = self.endpoint
             config['config'] = Config(signature_version='s3v4')
             logger.info(f"Initialized Cloudflare R2 client for bucket: {self.bucket_name}")
         elif self.provider == "aws":
             config['region_name'] = self.region
             logger.info(f"Initialized AWS S3 client for bucket: {self.bucket_name} (region: {self.region})")
         elif self.provider == "gcs":
-            # GCS interoperability mode
-            endpoint = os.getenv("GCS_ENDPOINT", "https://storage.googleapis.com")
+            endpoint = self.endpoint or "https://storage.googleapis.com"
             config['endpoint_url'] = endpoint
             config['region_name'] = self.region if self.region != "auto" else "us"
             logger.info(f"Initialized GCS client for bucket: {self.bucket_name}")

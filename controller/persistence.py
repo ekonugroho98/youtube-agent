@@ -5,9 +5,9 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
-from .models import StreamConfig, StreamState
+from .models import StreamConfig, StreamState, StreamProfile
 
 
 logger = logging.getLogger(__name__)
@@ -181,3 +181,171 @@ class StreamPersistence:
             if temp_path.exists():
                 temp_path.unlink()
             raise PersistenceError(f"Failed to write {path}: {str(e)}")
+
+
+class ProfileRegistry:
+    """
+    Manages profiles.json — the registry of all stream profiles.
+
+    Each profile maps to a subdirectory with its own StreamPersistence.
+    """
+
+    PROFILES_FILE = "profiles.json"
+
+    def __init__(self, config_dir: Optional[str] = None):
+        self.config_dir = Path(config_dir or os.getenv(
+            "STREAM_CONFIG_DIR",
+            "/var/lib/stream-controller"
+        ))
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.profiles_path = self.config_dir / self.PROFILES_FILE
+        logger.info(f"ProfileRegistry initialized in: {self.config_dir}")
+
+    def _load_raw(self) -> List[Dict]:
+        """Load raw profiles list from JSON."""
+        if not self.profiles_path.exists():
+            return []
+        try:
+            with open(self.profiles_path, 'r') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Failed to load profiles: {e}")
+            return []
+
+    def _save_raw(self, profiles: List[Dict]) -> None:
+        """Save profiles list to JSON atomically."""
+        temp_path = self.profiles_path.with_suffix('.tmp')
+        try:
+            with open(temp_path, 'w') as f:
+                json.dump(profiles, f, indent=2)
+            temp_path.replace(self.profiles_path)
+        except Exception as e:
+            if temp_path.exists():
+                temp_path.unlink()
+            raise PersistenceError(f"Failed to save profiles: {e}")
+
+    def list_profiles(self) -> List[StreamProfile]:
+        """List all registered profiles."""
+        raw = self._load_raw()
+        profiles = []
+        for item in raw:
+            try:
+                profiles.append(StreamProfile(**item))
+            except Exception as e:
+                logger.warning(f"Skipping invalid profile: {e}")
+        return profiles
+
+    def get_profile(self, profile_id: str) -> Optional[StreamProfile]:
+        """Get a profile by ID."""
+        for p in self.list_profiles():
+            if p.id == profile_id:
+                return p
+        return None
+
+    def create_profile(self, profile: StreamProfile) -> StreamProfile:
+        """Create a new profile. Raises if ID already exists."""
+        existing = self.get_profile(profile.id)
+        if existing:
+            raise PersistenceError(f"Profile '{profile.id}' already exists")
+
+        raw = self._load_raw()
+        raw.append(profile.model_dump(mode='json'))
+        self._save_raw(raw)
+
+        # Create profile config directory
+        profile_dir = self.config_dir / f"profile_{profile.id}"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Created profile: {profile.id} ({profile.name})")
+        return profile
+
+    def update_profile(self, profile: StreamProfile) -> StreamProfile:
+        """Update an existing profile."""
+        raw = self._load_raw()
+        updated = False
+        for i, item in enumerate(raw):
+            if item.get('id') == profile.id:
+                raw[i] = profile.model_dump(mode='json')
+                updated = True
+                break
+        if not updated:
+            raise PersistenceError(f"Profile '{profile.id}' not found")
+        self._save_raw(raw)
+        logger.info(f"Updated profile: {profile.id}")
+        return profile
+
+    def delete_profile(self, profile_id: str) -> None:
+        """Delete a profile and its config directory."""
+        raw = self._load_raw()
+        new_raw = [item for item in raw if item.get('id') != profile_id]
+        if len(new_raw) == len(raw):
+            raise PersistenceError(f"Profile '{profile_id}' not found")
+        self._save_raw(new_raw)
+
+        # Remove profile config directory
+        import shutil
+        profile_dir = self.config_dir / f"profile_{profile_id}"
+        if profile_dir.exists():
+            shutil.rmtree(profile_dir)
+
+        logger.info(f"Deleted profile: {profile_id}")
+
+    def get_profile_persistence(self, profile_id: str) -> StreamPersistence:
+        """Get a StreamPersistence instance for a specific profile."""
+        profile_dir = str(self.config_dir / f"profile_{profile_id}")
+        return StreamPersistence(config_dir=profile_dir)
+
+    def auto_migrate_legacy(self) -> Optional[str]:
+        """
+        Auto-migrate legacy single-stream config to a 'default' profile.
+
+        If profiles.json doesn't exist but stream_config.json does,
+        creates a 'default' profile using env-based credentials.
+
+        Returns:
+            Profile ID of migrated profile, or None if no migration needed.
+        """
+        if self.profiles_path.exists():
+            return None
+
+        legacy_config = self.config_dir / StreamPersistence.CONFIG_FILE
+        if not legacy_config.exists():
+            return None
+
+        logger.info("Auto-migrating legacy config to 'default' profile...")
+
+        from .encryption import encrypt
+
+        # Create default profile with env credentials
+        profile = StreamProfile(
+            id="default",
+            name="Default Channel",
+            enabled=True,
+            storage_bucket=os.getenv("STORAGE_BUCKET", ""),
+            storage_access_key_id=os.getenv("STORAGE_ACCESS_KEY_ID", ""),
+            storage_secret_access_key_encrypted=encrypt(os.getenv("STORAGE_SECRET_ACCESS_KEY", "")),
+            storage_endpoint=os.getenv("R2_ENDPOINT"),
+            storage_provider=os.getenv("STORAGE_PROVIDER", "cloudflare"),
+            storage_region=os.getenv("STORAGE_REGION", "auto"),
+            youtube_api_key_encrypted=encrypt(os.getenv("YOUTUBE_API_KEY", "")) if os.getenv("YOUTUBE_API_KEY") else None,
+        )
+
+        # Create profile directory and copy legacy files
+        profile_dir = self.config_dir / f"profile_{profile.id}"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+
+        import shutil
+        # Copy config
+        if legacy_config.exists():
+            shutil.copy2(str(legacy_config), str(profile_dir / StreamPersistence.CONFIG_FILE))
+        # Copy state
+        legacy_state = self.config_dir / StreamPersistence.STATE_FILE
+        if legacy_state.exists():
+            shutil.copy2(str(legacy_state), str(profile_dir / StreamPersistence.STATE_FILE))
+
+        # Save profile registry
+        self._save_raw([profile.model_dump(mode='json')])
+
+        logger.info(f"Migrated legacy config to profile 'default'")
+        return profile.id

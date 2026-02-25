@@ -206,6 +206,47 @@ class StreamState(BaseModel):
         use_enum_values = True
 
 
+class StreamProfile(BaseModel):
+    """
+    Profile representing one YouTube channel with its own config, storage, and API key.
+
+    Each profile is isolated: own storage bucket, stream key, YouTube API key.
+    """
+    id: str = Field(..., description="Profile slug ID (e.g., 'channel-a')")
+    name: str = Field(..., description="Human-readable profile name")
+    enabled: bool = Field(default=True, description="Whether this profile is active")
+    # Storage credentials (per-profile bucket)
+    storage_bucket: str = Field(..., description="S3/R2 bucket name for this profile")
+    storage_access_key_id: str = Field(..., description="Storage access key ID")
+    storage_secret_access_key_encrypted: str = Field(..., description="Encrypted storage secret access key")
+    storage_endpoint: Optional[str] = Field(default=None, description="Storage endpoint URL (e.g., R2 endpoint)")
+    storage_provider: str = Field(default="cloudflare", description="Storage provider: cloudflare, aws, gcs")
+    storage_region: str = Field(default="auto", description="Storage region")
+    # YouTube API key (per-profile, optional)
+    youtube_api_key_encrypted: Optional[str] = Field(default=None, description="Encrypted YouTube API v3 key")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="ISO 8601 creation timestamp")
+
+    @field_validator('id')
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        """Validate profile ID is a valid slug."""
+        import re
+        if not re.match(r'^[a-z0-9][a-z0-9\-]{0,48}[a-z0-9]$', v) and len(v) > 1:
+            if not re.match(r'^[a-z0-9]$', v):
+                raise ValueError('Profile ID must be lowercase alphanumeric with hyphens (2-50 chars)')
+        return v
+
+
+class ProfileSummary(BaseModel):
+    """Summary of a profile for listing endpoints."""
+    id: str
+    name: str
+    enabled: bool
+    status: StreamStatus = StreamStatus.STOPPED
+    is_live: bool = False
+    concurrent_viewers: Optional[int] = None
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = Field(default="healthy")

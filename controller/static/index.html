@@ -5,51 +5,142 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Stream Controller</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+        /* Layout: sidebar + main */
+        .app-layout {
+            display: flex;
+            min-height: 100vh;
         }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid rgba(0,0,0,0.08);
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .profile-list {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .profile-item {
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            background: #f7fafc;
+        }
+
+        .profile-item:hover {
+            background: #edf2f7;
+        }
+
+        .profile-item.active {
+            border-color: #667eea;
+            background: #ebf4ff;
+        }
+
+        .profile-item .profile-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .profile-item .profile-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+        }
+
+        .profile-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .profile-dot.live { background: #e53e3e; }
+        .profile-dot.streaming { background: #48bb78; }
+        .profile-dot.running { background: #48bb78; }
+        .profile-dot.starting { background: #4299e1; }
+        .profile-dot.stopped { background: #a0aec0; }
+        .profile-dot.error { background: #ed8936; }
+        .profile-dot.failed { background: #ed8936; }
+
+        .btn-add-profile {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 10px;
+            background: none;
+            color: #667eea;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+        }
+
+        .btn-add-profile:hover {
+            border-color: #667eea;
+            background: #ebf4ff;
+        }
+
+        /* Main content area */
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; }
 
         .header {
             background: white;
-            padding: 30px;
+            padding: 20px 25px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .header h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 32px;
-        }
-
-        .header p {
-            color: #666;
-            font-size: 16px;
-        }
+        .header h1 { color: #333; font-size: 24px; }
+        .header p { color: #666; font-size: 14px; margin-top: 4px; }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
             gap: 20px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
 
         .card {
@@ -61,8 +152,8 @@
 
         .card h2 {
             color: #333;
-            margin-bottom: 20px;
-            font-size: 20px;
+            margin-bottom: 15px;
+            font-size: 18px;
             display: flex;
             align-items: center;
             gap: 10px;
@@ -76,777 +167,584 @@
             border-radius: 2px;
         }
 
-        .form-group {
-            margin-bottom: 15px;
-        }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 6px; color: #555; font-weight: 500; font-size: 13px; }
 
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 500;
-            font-size: 14px;
-        }
-
-        input[type="text"],
-        input[type="file"],
-        select,
-        textarea {
+        input[type="text"], input[type="password"], input[type="file"], input[type="number"], select, textarea {
             width: 100%;
-            padding: 12px 15px;
+            padding: 10px 12px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             transition: all 0.3s;
         }
 
-        input:focus,
-        select:focus,
-        textarea:focus {
+        input:focus, select:focus, textarea:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
         .btn {
-            padding: 12px 24px;
+            padding: 10px 20px;
             border: none;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-success {
-            background: #48bb78;
-            color: white;
-        }
-
-        .btn-success:hover {
-            background: #38a169;
-        }
-
-        .btn-danger {
-            background: #f56565;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #e53e3e;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5568d3; }
+        .btn-success { background: #48bb78; color: white; }
+        .btn-success:hover { background: #38a169; }
+        .btn-danger { background: #f56565; color: white; }
+        .btn-danger:hover { background: #e53e3e; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .status-badge {
             display: inline-block;
-            padding: 6px 12px;
+            padding: 5px 10px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
         }
 
-        .status-running, .status-streaming {
-            background: #c6f6d5;
-            color: #22543d;
-        }
-
-        .status-stopped {
-            background: #fed7d7;
-            color: #742a2a;
-        }
-
-        .status-error, .status-failed {
-            background: #feebc8;
-            color: #7c2d12;
-        }
-
-        .status-starting {
-            background: #bee3f8;
-            color: #2c5282;
-        }
+        .status-running, .status-streaming { background: #c6f6d5; color: #22543d; }
+        .status-stopped { background: #fed7d7; color: #742a2a; }
+        .status-error, .status-failed { background: #feebc8; color: #7c2d12; }
+        .status-starting { background: #bee3f8; color: #2c5282; }
 
         .always-on-badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 3px 7px;
             border-radius: 12px;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
             background: #48bb78;
             color: white;
-            margin-left: 10px;
+            margin-left: 8px;
         }
+        .always-on-badge.inactive { background: #e0e0e0; color: #666; }
 
-        .always-on-badge.inactive {
-            background: #e0e0e0;
-            color: #666;
-        }
+        .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .stat-item { background: #f7fafc; padding: 12px; border-radius: 8px; }
+        .stat-label { font-size: 11px; color: #666; margin-bottom: 3px; }
+        .stat-value { font-size: 16px; font-weight: 600; color: #333; }
 
         .playlist-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background: #f7fafc;
-            border-radius: 8px;
-            margin-bottom: 8px;
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px; background: #f7fafc; border-radius: 8px; margin-bottom: 6px;
         }
-
-        .playlist-item span {
-            flex: 1;
-            font-size: 14px;
-            color: #333;
-        }
-
+        .playlist-item span { flex: 1; font-size: 13px; color: #333; }
         .playlist-item button {
-            background: #f56565;
-            color: white;
-            border: none;
-            width: 30px;
-            height: 30px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
+            background: #f56565; color: white; border: none;
+            width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 14px;
         }
 
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
+        .tab-buttons { display: flex; gap: 8px; margin-bottom: 15px; }
+        .tab-btn {
+            flex: 1; padding: 8px; background: #f7fafc;
+            border: 2px solid transparent; border-radius: 8px;
+            cursor: pointer; font-weight: 600; color: #666; font-size: 13px;
         }
+        .tab-btn.active { background: white; border-color: #667eea; color: #667eea; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
 
-        .stat-item {
-            background: #f7fafc;
-            padding: 15px;
-            border-radius: 8px;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-        }
-
-        .stat-value {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .upload-progress {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f7fafc;
-            border-radius: 8px;
-            display: none;
-        }
-
-        .upload-progress.active {
-            display: block;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            transition: width 0.3s;
-        }
+        .file-list { max-height: 250px; overflow-y: auto; border: 2px solid #e0e0e0; border-radius: 8px; padding: 8px; }
+        .file-item { padding: 8px; border-bottom: 1px solid #e0e0e0; cursor: pointer; font-size: 13px; }
+        .file-item:hover { background: #f7fafc; }
+        .file-item.selected { background: #ebf8ff; border-left: 3px solid #667eea; }
 
         .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            display: none;
+            padding: 12px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;
         }
+        .alert.active { display: block; }
+        .alert-success { background: #c6f6d5; color: #22543d; border: 1px solid #9ae6b4; }
+        .alert-error { background: #fed7d7; color: #742a2a; border: 1px solid #fc8181; }
 
-        .alert.active {
-            display: block;
+        .upload-progress { margin-top: 12px; padding: 12px; background: #f7fafc; border-radius: 8px; display: none; }
+        .upload-progress.active { display: block; }
+        .progress-bar { width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); transition: width 0.3s; }
+
+        /* YouTube styles */
+        .yt-live-badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+        .yt-live-badge.live { background: #e53e3e; color: white; }
+        .yt-live-badge.offline { background: #e0e0e0; color: #666; }
+        .yt-viewers { font-size: 24px; font-weight: 700; color: #e53e3e; }
+        .yt-api-badge { display: inline-block; padding: 3px 7px; border-radius: 12px; font-size: 10px; font-weight: 600; margin-left: 8px; }
+        .yt-api-badge.active { background: #c6f6d5; color: #22543d; }
+        .yt-api-badge.inactive { background: #e0e0e0; color: #666; }
+
+        /* Modal */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); display: flex; align-items: center;
+            justify-content: center; z-index: 1000;
         }
-
-        .alert-success {
-            background: #c6f6d5;
-            color: #22543d;
-            border: 1px solid #9ae6b4;
+        .modal-content {
+            background: white; padding: 25px; border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); min-width: 380px; max-width: 500px;
         }
+        .modal-content h2 { margin-bottom: 15px; font-size: 18px; }
 
-        .alert-error {
-            background: #fed7d7;
-            color: #742a2a;
-            border: 1px solid #fc8181;
-        }
-
-        .tab-buttons {
-            display: flex;
-            gap: 10px;
+        /* Summary cards view */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
             margin-bottom: 20px;
         }
 
-        .tab-btn {
-            flex: 1;
-            padding: 10px;
-            background: #f7fafc;
+        .summary-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            cursor: pointer;
+            transition: all 0.2s;
             border: 2px solid transparent;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            color: #666;
-            transition: all 0.3s;
         }
 
-        .tab-btn.active {
-            background: white;
-            border-color: #667eea;
-            color: #667eea;
+        .summary-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.12); }
+        .summary-card .sc-name { font-weight: 700; font-size: 16px; color: #333; margin-bottom: 8px; }
+        .summary-card .sc-status { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .summary-card .sc-viewers { font-size: 13px; color: #666; }
+
+        /* Profile delete btn */
+        .btn-delete-profile {
+            background: none; border: none; color: #f56565; cursor: pointer;
+            font-size: 12px; padding: 4px 8px; border-radius: 4px;
+        }
+        .btn-delete-profile:hover { background: #fff5f5; }
+
+        /* No profile selected */
+        .no-profile {
+            text-align: center; padding: 60px 20px; color: #666;
+        }
+        .no-profile h2 { font-size: 22px; margin-bottom: 10px; color: #333; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .app-layout { flex-direction: column; }
+            .sidebar { width: 100%; border-right: none; border-bottom: 1px solid rgba(0,0,0,0.08); }
+            .grid { grid-template-columns: 1fr; }
         }
 
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .file-list {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 10px;
-        }
-
-        .file-item {
-            padding: 10px;
-            border-bottom: 1px solid #e0e0e0;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .file-item:hover {
-            background: #f7fafc;
-        }
-
-        .file-item.selected {
-            background: #ebf8ff;
-            border-left: 3px solid #667eea;
-        }
-
-        .refresh-btn {
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 18px;
-            padding: 5px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .loading {
-            animation: spin 1s linear infinite;
-        }
-
-        /* YouTube API styles */
-        .yt-live-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-
-        .yt-live-badge.live {
-            background: #e53e3e;
-            color: white;
-        }
-
-        .yt-live-badge.offline {
-            background: #e0e0e0;
-            color: #666;
-        }
-
-        .yt-viewers {
-            font-size: 28px;
-            font-weight: 700;
-            color: #e53e3e;
-        }
-
-        .yt-stat-row {
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
-
-        .yt-stat-mini {
-            font-size: 12px;
-            color: #888;
-        }
-
-        .yt-stat-mini strong {
-            font-size: 16px;
-            color: #333;
-            display: block;
-        }
-
-        .yt-api-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-
-        .yt-api-badge.active {
-            background: #c6f6d5;
-            color: #22543d;
-        }
-
-        .yt-api-badge.inactive {
-            background: #e0e0e0;
-            color: #666;
-        }
-
-        /* Modal styles */
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        .modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            min-width: 350px;
-            max-width: 450px;
-        }
-
-        .modal-content h2 {
-            margin-top: 0;
-            margin-bottom: 10px;
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading { animation: spin 1s linear infinite; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div>
-                <h1>🎬 YouTube Stream Controller</h1>
-                <p>Manage your YouTube live streams with ease</p>
-            </div>
-            <button id="btn-logout" class="btn btn-danger" onclick="doLogout()" style="display: none;">
-                🚪 Logout
-            </button>
-        </div>
-
-        <!-- Alert -->
-        <div id="alert" class="alert"></div>
-
-        <!-- Login Modal -->
-        <div id="login-modal" class="modal" style="display: none;">
-            <div class="modal-content">
-                <h2>🔐 Login</h2>
-                <p style="margin-bottom: 20px; color: #666;">Enter PIN to access the dashboard</p>
-                <div class="form-group">
-                    <label>PIN</label>
-                    <input type="password" id="login-pin" placeholder="Enter PIN" maxlength="20" autofocus
-                           onkeypress="if(event.key === 'Enter') doLogin()">
-                </div>
-                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-                    <button class="btn btn-primary" onclick="doLogin()">Login</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Stats Grid -->
-        <div class="grid">
-            <div class="card">
-                <h2>📊 Stream Status</h2>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-label">Status</div>
-                        <div class="stat-value">
-                            <span id="status-badge" class="status-badge status-stopped">STOPPED</span>
-                            <span id="always-on-badge" class="always-on-badge inactive">24/7 OFF</span>
-                        </div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Worker PID</div>
-                        <div class="stat-value" id="worker-pid">-</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Uptime</div>
-                        <div class="stat-value" id="uptime">-</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Media</div>
-                        <div class="stat-value" id="current-media">-</div>
-                    </div>
-                    <div class="stat-item" id="restart-count-item" style="display: none;">
-                        <div class="stat-label">Auto-Restarts</div>
-                        <div class="stat-value" id="restart-count">-</div>
-                    </div>
-                </div>
-                <p id="status-hint" class="status-hint" style="display: none; font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f5f5f5; border-radius: 6px;">
-                    💡 <strong>Running</strong> = kita sudah kirim sinyal ke YouTube. Di YouTube Studio bisa masih tampil <strong>Preparing</strong> beberapa detik–1 menit sebelum status berubah ke <strong>LIVE</strong>. Cek langsung di YouTube Studio untuk status siaran.
-                </p>
-            </div>
-
-            <div class="card">
-                <h2>🎮 Controls</h2>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button id="btn-start" class="btn btn-success" onclick="startStream()">
-                        ▶️ Start Stream
-                    </button>
-                    <button id="btn-stop" class="btn btn-danger" onclick="stopStream()" disabled>
-                        ⏹️ Stop Stream
-                    </button>
-                    <button class="btn btn-primary" onclick="refreshStatus()">
-                        🔄 Refresh
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- YouTube Live Status Card -->
-        <div id="youtube-card" class="card" style="display: none; margin-bottom: 30px;">
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <div class="sidebar">
             <h2>
-                YouTube Live Monitor
-                <span id="yt-api-badge" class="yt-api-badge inactive">API OFF</span>
+                Profiles
+                <button id="btn-logout" class="btn btn-danger btn-sm" onclick="doLogout()" style="display: none;">Logout</button>
             </h2>
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <div class="stat-label">YouTube Status</div>
-                    <div class="stat-value">
-                        <span id="yt-live-badge" class="yt-live-badge offline">OFFLINE</span>
-                    </div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Viewers</div>
-                    <div class="stat-value yt-viewers" id="yt-viewers">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Views</div>
-                    <div class="stat-value" id="yt-views">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Likes</div>
-                    <div class="stat-value" id="yt-likes">-</div>
-                </div>
+            <div id="profile-list" class="profile-list">
+                <div style="color: #999; font-size: 13px; padding: 10px;">Loading...</div>
             </div>
-            <div id="yt-stream-title" style="margin-top: 12px; font-size: 13px; color: #666; display: none;">
-                <strong>Title:</strong> <span id="yt-title-text">-</span>
-            </div>
-            <div id="yt-video-link" style="margin-top: 8px; display: none;">
-                <a id="yt-video-url" href="#" target="_blank" style="color: #667eea; font-size: 13px;">Watch on YouTube</a>
-            </div>
+            <button class="btn-add-profile" onclick="showAddProfileModal()">+ Add Profile</button>
         </div>
 
-        <!-- Main Grid -->
-        <div class="grid">
-            <!-- Upload Card -->
-            <div class="card">
-                <h2>📤 Upload Media</h2>
-                <div class="form-group">
-                    <label>Select File</label>
-                    <input type="file" id="upload-file" accept=".mp4,.mp3,.mkv,.avi,.mov,.flv,.webm">
-                </div>
-                <div class="form-group">
-                    <label>Object Key (optional)</label>
-                    <input type="text" id="upload-key" placeholder="Leave empty to use filename">
-                </div>
-                <button id="btn-upload" class="btn btn-primary" onclick="uploadFile()">
-                    📤 Upload
-                </button>
+        <!-- Main content -->
+        <div class="main-content">
+            <div class="container">
+                <div id="alert" class="alert"></div>
 
-                <div id="upload-progress" class="upload-progress">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <span id="upload-status">Uploading...</span>
-                        <span id="upload-percent">0%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div id="upload-fill" class="progress-fill" style="width: 0%"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Config Card -->
-            <div class="card">
-                <h2>⚙️ Stream Configuration</h2>
-
-                <!-- YouTube Stream Key -->
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label>🔑 YouTube Stream Key</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="password" id="youtube-stream-key" placeholder="xxxx-xxxx-xxxx-xxxx">
-                        <button class="btn btn-primary" onclick="saveStreamKey()">Save</button>
-                    </div>
-                    <p style="font-size: 12px; color: #666; margin-top: 5px;">
-                        Get your stream key from <a href="https://studio.youtube.com" target="_blank" style="color: #667eea;">YouTube Studio</a> → Go Live
-                    </p>
-                </div>
-
-                <div class="tab-buttons">
-                    <button class="tab-btn active" onclick="switchTab('single')">Single File</button>
-                    <button class="tab-btn" onclick="switchTab('playlist')">Playlist</button>
-                </div>
-
-                <!-- Single File Tab -->
-                <div id="tab-single" class="tab-content active">
-                    <div class="form-group">
-                        <label>Media File</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="text" id="single-media-key" placeholder="e.g., smaller.mp4">
-                            <button class="btn btn-primary" onclick="browseFiles()">📁</button>
+                <!-- Summary view (shown when no profile selected) -->
+                <div id="summary-view">
+                    <div class="header">
+                        <div>
+                            <h1>YouTube Stream Controller</h1>
+                            <p>Multi-account stream management</p>
                         </div>
                     </div>
-                    <button class="btn btn-primary" onclick="setSingleConfig()">
-                        ✅ Set Config
-                    </button>
+                    <div id="summary-grid" class="summary-grid"></div>
                 </div>
 
-                <!-- Playlist Tab -->
-                <div id="tab-playlist" class="tab-content">
-                    <div class="form-group">
-                        <label>Add to Playlist</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="text" id="playlist-add-input" placeholder="e.g., surah_1.mp4">
-                            <button class="btn btn-primary" onclick="addToPlaylist()">➕ Add</button>
+                <!-- Profile detail view (shown when a profile is selected) -->
+                <div id="profile-view" style="display: none;">
+                    <div class="header">
+                        <div>
+                            <h1 id="pv-title">Profile Name</h1>
+                            <p id="pv-subtitle">bucket-name</p>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="btn btn-primary btn-sm" onclick="showSummary()">All Profiles</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCurrentProfile()">Delete</button>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label>Playlist</label>
-                        <div id="playlist-container"></div>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button class="btn btn-primary" onclick="setPlaylistConfig()">
-                            ✅ Set Playlist
-                        </button>
-                        <button class="btn btn-danger" onclick="clearPlaylist()">
-                            🗑️ Clear
-                        </button>
-                    </div>
-                </div>
 
-                <!-- Loop settings (shared) -->
-                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="loop-streaming" style="width: 18px; height: 18px;">
-                        <span>🔄 Auto loop when video ends</span>
-                    </label>
-                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
-                        <label style="margin: 0;">Delay between loops (seconds)</label>
-                        <input type="number" id="loop-delay" min="1" max="300" value="5" style="width: 80px;">
-                        <button class="btn btn-primary" onclick="saveLoopSettings()">Save loop</button>
-                    </div>
-                </div>
-
-                <!-- Daily schedule: auto start same time every day, run N hours -->
-                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="schedule-enabled" style="width: 18px; height: 18px;">
-                        <span>📅 Daily schedule (e.g. live 8 jam/hari, otomatis tiap hari)</span>
-                    </label>
-                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;">
-                        <label style="margin: 0;">Mulai jam</label>
-                        <input type="text" id="schedule-start-time" placeholder="09:00" maxlength="5" style="width: 70px;" title="HH:MM (24h)">
-                        <label style="margin: 0;">Durasi (jam/hari)</label>
-                        <input type="number" id="schedule-duration-hours" min="0.5" max="24" step="0.5" value="8" style="width: 70px;">
-                        <button class="btn btn-primary" onclick="saveScheduleSettings()">Save schedule</button>
-                    </div>
-                    <p style="font-size: 12px; color: #666; margin-top: 8px;">Stream otomatis mulai di jam yang diatur, jalan N jam, lalu stop. Besok di jam yang sama mulai lagi.</p>
-                </div>
-
-                <!-- 24/7 Always-On mode: auto-restart on crash for continuous streaming -->
-                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="always-on" style="width: 18px; height: 18px;">
-                        <span>🟢 24/7 Mode (auto-restart saat crash/error)</span>
-                    </label>
-                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;">
-                        <label style="margin: 0;">Keepalive check (seconds)</label>
-                        <input type="number" id="keepalive-interval" min="60" max="3600" value="300" style="width: 80px;" title="60-3600 seconds">
-                        <button class="btn btn-primary" onclick="saveAlwaysOnSettings()">Save 24/7</button>
-                    </div>
-                    <p style="font-size: 12px; color: #666; margin-top: 8px;">24/7 mode akan otomatis restart worker jika crash. Best untuk streaming non-stop.</p>
-                </div>
-
-                <!-- YouTube API Monitoring -->
-                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="yt-api-enabled" style="width: 18px; height: 18px;">
-                        <span>YouTube API Monitor (viewer count, live status)</span>
-                    </label>
-                    <div id="yt-api-settings" style="margin-top: 10px;">
-                        <div class="form-group">
-                            <label>YouTube Channel ID</label>
-                            <input type="text" id="yt-channel-id" placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx">
-                            <p style="font-size: 12px; color: #666; margin-top: 4px;">
-                                Cari channel ID di <a href="https://www.youtube.com/account_advanced" target="_blank" style="color: #667eea;">YouTube Settings</a> > Advanced
-                            </p>
+                    <!-- Stats + Controls -->
+                    <div class="grid">
+                        <div class="card">
+                            <h2>Stream Status</h2>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-label">Status</div>
+                                    <div class="stat-value">
+                                        <span id="status-badge" class="status-badge status-stopped">STOPPED</span>
+                                        <span id="always-on-badge" class="always-on-badge inactive">24/7 OFF</span>
+                                    </div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Worker PID</div>
+                                    <div class="stat-value" id="worker-pid">-</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Uptime</div>
+                                    <div class="stat-value" id="uptime">-</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Media</div>
+                                    <div class="stat-value" id="current-media">-</div>
+                                </div>
+                                <div class="stat-item" id="restart-count-item" style="display: none;">
+                                    <div class="stat-label">Auto-Restarts</div>
+                                    <div class="stat-value" id="restart-count">-</div>
+                                </div>
+                            </div>
+                            <p id="status-hint" style="display: none; font-size: 11px; color: #666; margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 6px;"></p>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <label style="margin: 0;">Poll interval (seconds)</label>
-                            <input type="number" id="yt-monitor-interval" min="10" max="300" value="30" style="width: 80px;">
+
+                        <div class="card">
+                            <h2>Controls</h2>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button id="btn-start" class="btn btn-success" onclick="startStream()">Start Stream</button>
+                                <button id="btn-stop" class="btn btn-danger" onclick="stopStream()" disabled>Stop Stream</button>
+                                <button class="btn btn-primary" onclick="refreshProfileStatus()">Refresh</button>
+                            </div>
                         </div>
-                        <div style="display: flex; gap: 10px; margin-top: 10px;">
-                            <button class="btn btn-primary" onclick="saveYouTubeAPISettings()">Save YouTube API</button>
-                            <button class="btn" style="background: #f7fafc; color: #333;" onclick="validateYouTubeSetup()">Test Connection</button>
+                    </div>
+
+                    <!-- YouTube Live Monitor -->
+                    <div id="youtube-card" class="card" style="display: none; margin-bottom: 20px;">
+                        <h2>
+                            YouTube Live Monitor
+                            <span id="yt-api-badge" class="yt-api-badge inactive">API OFF</span>
+                            <button class="btn btn-primary btn-sm" onclick="refreshYouTubeStatus()" style="margin-left: auto;">Refresh YouTube</button>
+                        </h2>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-label">YouTube Status</div>
+                                <div class="stat-value"><span id="yt-live-badge" class="yt-live-badge offline">OFFLINE</span></div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Viewers</div>
+                                <div class="stat-value yt-viewers" id="yt-viewers">-</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Views</div>
+                                <div class="stat-value" id="yt-views">-</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Likes</div>
+                                <div class="stat-value" id="yt-likes">-</div>
+                            </div>
+                        </div>
+                        <div id="yt-stream-title" style="margin-top: 10px; font-size: 12px; color: #666; display: none;">
+                            <strong>Title:</strong> <span id="yt-title-text">-</span>
+                        </div>
+                        <div id="yt-video-link" style="margin-top: 6px; display: none;">
+                            <a id="yt-video-url" href="#" target="_blank" style="color: #667eea; font-size: 12px;">Watch on YouTube</a>
+                        </div>
+                    </div>
+
+                    <!-- Upload + Config -->
+                    <div class="grid">
+                        <div class="card">
+                            <h2>Upload Media</h2>
+                            <div class="form-group">
+                                <label>Select File</label>
+                                <input type="file" id="upload-file" accept=".mp4,.mp3,.mkv,.avi,.mov,.flv,.webm">
+                            </div>
+                            <div class="form-group">
+                                <label>Object Key (optional)</label>
+                                <input type="text" id="upload-key" placeholder="Leave empty to use filename">
+                            </div>
+                            <button id="btn-upload" class="btn btn-primary" onclick="uploadFile()">Upload</button>
+                            <div id="upload-progress" class="upload-progress">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span id="upload-status">Uploading...</span>
+                                    <span id="upload-percent">0%</span>
+                                </div>
+                                <div class="progress-bar"><div id="upload-fill" class="progress-fill" style="width: 0%"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h2>Stream Configuration</h2>
+
+                            <!-- Stream Key -->
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label>YouTube Stream Key</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="password" id="youtube-stream-key" placeholder="xxxx-xxxx-xxxx-xxxx">
+                                    <button class="btn btn-primary btn-sm" onclick="saveStreamKey()">Save</button>
+                                </div>
+                            </div>
+
+                            <div class="tab-buttons">
+                                <button class="tab-btn active" onclick="switchTab('single')">Single File</button>
+                                <button class="tab-btn" onclick="switchTab('playlist')">Playlist</button>
+                            </div>
+
+                            <div id="tab-single" class="tab-content active">
+                                <div class="form-group">
+                                    <label>Media File</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" id="single-media-key" placeholder="e.g., video.mp4">
+                                        <button class="btn btn-primary btn-sm" onclick="browseFiles()">Browse</button>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" onclick="setSingleConfig()">Set Config</button>
+                            </div>
+
+                            <div id="tab-playlist" class="tab-content">
+                                <div class="form-group">
+                                    <label>Add to Playlist</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" id="playlist-add-input" placeholder="e.g., video.mp4">
+                                        <button class="btn btn-primary btn-sm" onclick="addToPlaylist()">Add</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Playlist</label>
+                                    <div id="playlist-container"></div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button class="btn btn-primary" onclick="setPlaylistConfig()">Set Playlist</button>
+                                    <button class="btn btn-danger btn-sm" onclick="clearPlaylist()">Clear</button>
+                                </div>
+                            </div>
+
+                            <!-- Loop -->
+                            <div class="form-group" style="margin-top: 15px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="loop-streaming" style="width: 16px; height: 16px;">
+                                    <span>Auto loop when video ends</span>
+                                </label>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                                    <label style="margin: 0; white-space: nowrap;">Delay (s)</label>
+                                    <input type="number" id="loop-delay" min="1" max="300" value="5" style="width: 70px;">
+                                    <button class="btn btn-primary btn-sm" onclick="saveLoopSettings()">Save</button>
+                                </div>
+                            </div>
+
+                            <!-- Schedule -->
+                            <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="schedule-enabled" style="width: 16px; height: 16px;">
+                                    <span>Daily schedule</span>
+                                </label>
+                                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;">
+                                    <label style="margin: 0;">Start</label>
+                                    <input type="text" id="schedule-start-time" placeholder="09:00" maxlength="5" style="width: 65px;">
+                                    <label style="margin: 0;">Hours</label>
+                                    <input type="number" id="schedule-duration-hours" min="0.5" max="24" step="0.5" value="8" style="width: 65px;">
+                                    <button class="btn btn-primary btn-sm" onclick="saveScheduleSettings()">Save</button>
+                                </div>
+                            </div>
+
+                            <!-- 24/7 -->
+                            <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="always-on" style="width: 16px; height: 16px;">
+                                    <span>24/7 Mode (auto-restart on crash)</span>
+                                </label>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                                    <label style="margin: 0; white-space: nowrap;">Keepalive (s)</label>
+                                    <input type="number" id="keepalive-interval" min="60" max="3600" value="300" style="width: 80px;">
+                                    <button class="btn btn-primary btn-sm" onclick="saveAlwaysOnSettings()">Save</button>
+                                </div>
+                            </div>
+
+                            <!-- YouTube API -->
+                            <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="yt-api-enabled" style="width: 16px; height: 16px;">
+                                    <span>YouTube API Monitor</span>
+                                </label>
+                                <div id="yt-api-settings" style="margin-top: 8px;">
+                                    <div class="form-group">
+                                        <label>Channel ID</label>
+                                        <input type="text" id="yt-channel-id" placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx">
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label style="margin: 0; white-space: nowrap;">Poll (s)</label>
+                                        <input type="number" id="yt-monitor-interval" min="10" max="300" value="30" style="width: 70px;">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button class="btn btn-primary btn-sm" onclick="saveYouTubeAPISettings()">Save</button>
+                                        <button class="btn btn-sm" style="background: #f7fafc; color: #333;" onclick="validateYouTubeSetup()">Test</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storage Browser -->
+                    <div class="card">
+                        <h2>
+                            Storage Browser
+                            <button style="background: none; border: none; cursor: pointer; font-size: 16px;" onclick="loadStorageFiles()">&#x21bb;</button>
+                        </h2>
+                        <div id="file-list" class="file-list">
+                            <div style="text-align: center; color: #999; padding: 15px;">Loading...</div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Storage Browser -->
-        <div class="card">
-            <h2>
-                📁 Storage Browser
-                <button class="refresh-btn" onclick="loadStorageFiles()" title="Refresh">🔄</button>
-            </h2>
-            <div id="file-list" class="file-list">
-                <div style="text-align: center; color: #999; padding: 20px;">Loading...</div>
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>Login</h2>
+            <p style="margin-bottom: 15px; color: #666; font-size: 13px;">Enter PIN to access the dashboard</p>
+            <div class="form-group">
+                <label>PIN</label>
+                <input type="password" id="login-pin" placeholder="Enter PIN" maxlength="20" autofocus
+                       onkeypress="if(event.key === 'Enter') doLogin()">
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 15px;">
+                <button class="btn btn-primary" onclick="doLogin()">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Profile Modal -->
+    <div id="add-profile-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>Add Profile</h2>
+            <div class="form-group">
+                <label>Profile Name *</label>
+                <input type="text" id="ap-name" placeholder="e.g., Channel Kaysan">
+            </div>
+            <div class="form-group">
+                <label>Storage Bucket *</label>
+                <input type="text" id="ap-bucket" placeholder="e.g., my-media-bucket">
+            </div>
+            <div class="form-group">
+                <label>Storage Access Key ID *</label>
+                <input type="text" id="ap-access-key" placeholder="Access key ID">
+            </div>
+            <div class="form-group">
+                <label>Storage Secret Access Key *</label>
+                <input type="password" id="ap-secret-key" placeholder="Secret access key">
+            </div>
+            <div class="form-group">
+                <label>Storage Endpoint (optional)</label>
+                <input type="text" id="ap-endpoint" placeholder="e.g., https://xxx.r2.cloudflarestorage.com">
+            </div>
+            <div class="form-group">
+                <label>Storage Provider</label>
+                <select id="ap-provider">
+                    <option value="cloudflare">Cloudflare R2</option>
+                    <option value="aws">AWS S3</option>
+                    <option value="gcs">Google Cloud Storage</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>YouTube API Key (optional)</label>
+                <input type="password" id="ap-yt-key" placeholder="YouTube Data API v3 key">
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 15px;">
+                <button class="btn" style="background: #f7fafc; color: #333;" onclick="hideAddProfileModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="createProfile()">Create Profile</button>
             </div>
         </div>
     </div>
 
     <script>
         const API_BASE = window.location.origin;
-        let playlist = [];
-        let selectedFile = null;
         let authToken = localStorage.getItem('authToken') || null;
+        let currentProfileId = null;
+        let allProfiles = [];
+        let playlist = [];
+        let refreshInterval = null;
 
-        // Auth functions
-        async function checkAuth() {
-            const token = localStorage.getItem('authToken');
-            if (token) {
-                // Token exists, check if valid
-                return true;
-            }
-
-            // No token - show login modal
-            showLoginModal();
-            return false;
-        }
-
-        function showLoginModal() {
-            document.getElementById('login-modal').style.display = 'flex';
-            document.getElementById('login-pin').value = '';
-            document.getElementById('login-pin').focus();
-        }
-
-        function hideLoginModal() {
-            document.getElementById('login-modal').style.display = 'none';
-        }
-
-        async function doLogin() {
-            const pin = document.getElementById('login-pin').value.trim();
-
-            if (!pin) {
-                showAlert('Please enter PIN', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE}/auth/login`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({pin: pin})
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    localStorage.setItem('authToken', data.token);
-                    authToken = data.token;
-                    hideLoginModal();
-                    showAlert('Login successful', 'success');
-                    document.getElementById('btn-logout').style.display = 'block';
-                    refreshStatus(); // Refresh after login
-                } else {
-                    showAlert(data.detail || 'Login failed', 'error');
-                }
-            } catch (error) {
-                showAlert('Login failed', 'error');
-            }
-        }
-
-        async function doLogout() {
-            try {
-                await fetch(`${API_BASE}/auth/logout`, {
-                    method: 'POST',
-                    headers: {'Authorization': `Bearer ${authToken}`}
-                });
-            } catch (error) {
-                // Ignore error
-            }
-
-            localStorage.removeItem('authToken');
-            authToken = null;
-            document.getElementById('btn-logout').style.display = 'none';
-            showAlert('Logged out', 'success');
-            showLoginModal();
-        }
+        // ==================== Auth ====================
 
         function getAuthHeaders() {
             return authToken ? {'Authorization': `Bearer ${authToken}`} : {};
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            // Check auth first
-            if (checkAuth()) {
-                // If already logged in, show logout button
+        async function checkAuthStatus() {
+            try {
+                const resp = await fetch(`${API_BASE}/auth/status`);
+                const data = await resp.json();
+                if (data.pin_required && !authToken) {
+                    document.getElementById('login-modal').style.display = 'flex';
+                    return false;
+                }
                 if (authToken) {
                     document.getElementById('btn-logout').style.display = 'block';
                 }
-                refreshStatus();
-                loadStreamConfig();
-                loadStorageFiles();
-                setInterval(refreshStatus, 5000); // Auto-refresh every 5s
+                return true;
+            } catch (e) {
+                return true;
+            }
+        }
+
+        async function doLogin() {
+            const pin = document.getElementById('login-pin').value.trim();
+            if (!pin) { showAlert('Please enter PIN', 'error'); return; }
+            try {
+                const resp = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pin})
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    localStorage.setItem('authToken', data.token);
+                    authToken = data.token;
+                    document.getElementById('login-modal').style.display = 'none';
+                    document.getElementById('btn-logout').style.display = 'block';
+                    showAlert('Login successful', 'success');
+                    loadProfiles();
+                } else {
+                    showAlert(data.detail || 'Login failed', 'error');
+                }
+            } catch (e) { showAlert('Login failed', 'error'); }
+        }
+
+        async function doLogout() {
+            try { await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers: {'Authorization': `Bearer ${authToken}`} }); } catch (e) {}
+            localStorage.removeItem('authToken');
+            authToken = null;
+            document.getElementById('btn-logout').style.display = 'none';
+            document.getElementById('login-modal').style.display = 'flex';
+        }
+
+        // ==================== Init ====================
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const ok = await checkAuthStatus();
+            if (ok) {
+                loadProfiles();
+                refreshInterval = setInterval(() => {
+                    if (currentProfileId) refreshProfileStatus();
+                    else loadProfiles();
+                }, 5000);
             }
         });
 
-        // Alert
+        // ==================== Alerts ====================
+
         function showAlert(message, type = 'success') {
             const alert = document.getElementById('alert');
             alert.textContent = message;
@@ -854,15 +752,190 @@
             setTimeout(() => alert.classList.remove('active'), 5000);
         }
 
-        // Status
-        async function refreshStatus() {
+        // ==================== Profiles ====================
+
+        async function loadProfiles() {
             try {
-                const response = await fetch(`${API_BASE}/streams/status`, {
+                const resp = await fetch(`${API_BASE}/profiles`, { headers: getAuthHeaders() });
+                const data = await resp.json();
+                allProfiles = data.profiles || [];
+                renderProfileList();
+                renderSummary();
+            } catch (e) {
+                console.error('Failed to load profiles:', e);
+            }
+        }
+
+        function renderProfileList() {
+            const list = document.getElementById('profile-list');
+            if (allProfiles.length === 0) {
+                list.innerHTML = '<div style="color: #999; font-size: 13px; padding: 10px;">No profiles yet. Add one to start.</div>';
+                return;
+            }
+            list.innerHTML = '';
+            allProfiles.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'profile-item' + (currentProfileId === p.id ? ' active' : '');
+                const dotClass = p.is_live ? 'live' : p.status;
+                const statusText = p.is_live ? 'LIVE' : p.status.toUpperCase();
+                const viewersText = p.concurrent_viewers != null ? ` | ${formatNumber(p.concurrent_viewers)} viewers` : '';
+                div.innerHTML = `
+                    <div class="profile-name">${escapeHtml(p.name)}</div>
+                    <div class="profile-meta">
+                        <span class="profile-dot ${dotClass}"></span>
+                        <span>${statusText}${viewersText}</span>
+                    </div>
+                `;
+                div.onclick = () => selectProfile(p.id);
+                list.appendChild(div);
+            });
+        }
+
+        function renderSummary() {
+            const grid = document.getElementById('summary-grid');
+            if (allProfiles.length === 0) {
+                grid.innerHTML = '<div class="no-profile"><h2>No Profiles</h2><p>Create a profile to start streaming</p></div>';
+                return;
+            }
+            grid.innerHTML = '';
+            allProfiles.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'summary-card';
+                const dotClass = p.is_live ? 'live' : p.status;
+                const statusText = p.is_live ? 'LIVE' : p.status.toUpperCase();
+                const viewersText = p.concurrent_viewers != null ? `${formatNumber(p.concurrent_viewers)} viewers` : '';
+                card.innerHTML = `
+                    <div class="sc-name">${escapeHtml(p.name)}</div>
+                    <div class="sc-status">
+                        <span class="profile-dot ${dotClass}"></span>
+                        <span class="status-badge status-${p.status}">${statusText}</span>
+                    </div>
+                    ${viewersText ? `<div class="sc-viewers">${viewersText}</div>` : ''}
+                `;
+                card.onclick = () => selectProfile(p.id);
+                grid.appendChild(card);
+            });
+        }
+
+        function selectProfile(profileId) {
+            currentProfileId = profileId;
+            const p = allProfiles.find(x => x.id === profileId);
+            if (!p) return;
+
+            document.getElementById('summary-view').style.display = 'none';
+            document.getElementById('profile-view').style.display = 'block';
+            document.getElementById('pv-title').textContent = p.name;
+            document.getElementById('pv-subtitle').textContent = `Profile: ${p.id}`;
+
+            renderProfileList();
+            refreshProfileStatus();
+            loadStreamConfig();
+            loadStorageFiles();
+        }
+
+        function showSummary() {
+            currentProfileId = null;
+            document.getElementById('profile-view').style.display = 'none';
+            document.getElementById('summary-view').style.display = 'block';
+            renderProfileList();
+            loadProfiles();
+        }
+
+        // ==================== Profile CRUD ====================
+
+        function showAddProfileModal() {
+            document.getElementById('add-profile-modal').style.display = 'flex';
+            document.getElementById('ap-name').value = '';
+            document.getElementById('ap-bucket').value = '';
+            document.getElementById('ap-access-key').value = '';
+            document.getElementById('ap-secret-key').value = '';
+            document.getElementById('ap-endpoint').value = '';
+            document.getElementById('ap-yt-key').value = '';
+            document.getElementById('ap-name').focus();
+        }
+
+        function hideAddProfileModal() {
+            document.getElementById('add-profile-modal').style.display = 'none';
+        }
+
+        async function createProfile() {
+            const name = document.getElementById('ap-name').value.trim();
+            const bucket = document.getElementById('ap-bucket').value.trim();
+            const accessKey = document.getElementById('ap-access-key').value.trim();
+            const secretKey = document.getElementById('ap-secret-key').value.trim();
+            const endpoint = document.getElementById('ap-endpoint').value.trim();
+            const provider = document.getElementById('ap-provider').value;
+            const ytKey = document.getElementById('ap-yt-key').value.trim();
+
+            if (!name || !bucket || !accessKey || !secretKey) {
+                showAlert('Please fill in all required fields', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('storage_bucket', bucket);
+            formData.append('storage_access_key_id', accessKey);
+            formData.append('storage_secret_access_key', secretKey);
+            if (endpoint) formData.append('storage_endpoint', endpoint);
+            formData.append('storage_provider', provider);
+            if (ytKey) formData.append('youtube_api_key', ytKey);
+
+            try {
+                const resp = await fetch(`${API_BASE}/profiles`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: formData
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    hideAddProfileModal();
+                    showAlert(`Profile "${name}" created!`, 'success');
+                    await loadProfiles();
+                    selectProfile(data.profile_id);
+                } else {
+                    showAlert(data.detail?.error || 'Failed to create profile', 'error');
+                }
+            } catch (e) {
+                showAlert('Failed to create profile', 'error');
+            }
+        }
+
+        async function deleteCurrentProfile() {
+            if (!currentProfileId) return;
+            const p = allProfiles.find(x => x.id === currentProfileId);
+            if (!confirm(`Delete profile "${p?.name || currentProfileId}"? This cannot be undone.`)) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/profiles/${currentProfileId}`, {
+                    method: 'DELETE',
                     headers: getAuthHeaders()
                 });
-                const data = await response.json();
+                const data = await resp.json();
+                if (resp.ok) {
+                    showAlert('Profile deleted', 'success');
+                    showSummary();
+                    loadProfiles();
+                } else {
+                    showAlert(data.detail?.error || 'Failed to delete profile', 'error');
+                }
+            } catch (e) {
+                showAlert('Failed to delete profile', 'error');
+            }
+        }
 
-                // Update UI
+        // ==================== Profile-scoped API calls ====================
+
+        function profileUrl(path) {
+            return `${API_BASE}/profiles/${currentProfileId}${path}`;
+        }
+
+        async function refreshProfileStatus() {
+            if (!currentProfileId) return;
+            try {
+                const resp = await fetch(profileUrl('/status'), { headers: getAuthHeaders() });
+                const data = await resp.json();
+
                 const badge = document.getElementById('status-badge');
                 badge.textContent = data.status.toUpperCase();
                 badge.className = `status-badge status-${data.status}`;
@@ -870,123 +943,333 @@
                 document.getElementById('worker-pid').textContent = data.worker_pid || '-';
                 document.getElementById('current-media').textContent = data.media_key || '-';
 
-                // Format uptime
                 if (data.uptime_seconds) {
-                    const hours = Math.floor(data.uptime_seconds / 3600);
-                    const minutes = Math.floor((data.uptime_seconds % 3600) / 60);
-                    const seconds = data.uptime_seconds % 60;
-                    document.getElementById('uptime').textContent =
-                        `${hours}h ${minutes}m ${seconds}s`;
+                    const h = Math.floor(data.uptime_seconds / 3600);
+                    const m = Math.floor((data.uptime_seconds % 3600) / 60);
+                    const s = data.uptime_seconds % 60;
+                    document.getElementById('uptime').textContent = `${h}h ${m}m ${s}s`;
                 } else {
                     document.getElementById('uptime').textContent = '-';
                 }
 
-                // Update 24/7 badge
                 updateAlwaysOnBadge(!!data.always_on);
 
-                // Show restart count if 24/7 mode is enabled
-                const restartCountItem = document.getElementById('restart-count-item');
+                const restartItem = document.getElementById('restart-count-item');
                 if (data.always_on) {
-                    restartCountItem.style.display = 'block';
+                    restartItem.style.display = 'block';
                     document.getElementById('restart-count').textContent = data.always_on_restart_count || 0;
                 } else {
-                    restartCountItem.style.display = 'none';
+                    restartItem.style.display = 'none';
                 }
 
-                // Update buttons - can only start if stopped/error/failed
                 const activeStates = ['running', 'streaming', 'starting'];
                 document.getElementById('btn-start').disabled = activeStates.includes(data.status);
                 document.getElementById('btn-stop').disabled = !activeStates.includes(data.status);
 
-                // Show hint based on status
                 const hint = document.getElementById('status-hint');
-                if (hint) {
-                    if (data.status === 'starting') {
-                        hint.textContent = '⏳ Connecting to YouTube...';
-                        hint.style.display = 'block';
-                    } else if (data.status === 'streaming') {
-                        hint.textContent = '✅ Streaming to YouTube! Check YouTube Studio for LIVE status.';
-                        hint.style.display = 'block';
-                    } else if (data.status === 'failed') {
-                        hint.textContent = '❌ Failed to connect: ' + (data.error_message || 'Unknown error');
-                        hint.style.display = 'block';
-                    } else if (data.status === 'running') {
-                        hint.textContent = '💡 Running = sudah kirim sinyal ke YouTube. Cek YouTube Studio untuk status LIVE.';
-                        hint.style.display = 'block';
-                    } else if (data.status === 'error') {
-                        if (data.always_on) {
-                            hint.textContent = '🔄 Worker crashed but 24/7 mode will auto-restart...';
-                        } else {
-                            hint.textContent = '❌ Error: ' + (data.error_message || 'Unknown error');
-                        }
-                        hint.style.display = 'block';
-                    } else {
-                        hint.style.display = 'none';
-                    }
+                if (data.status === 'starting') {
+                    hint.textContent = 'Connecting to YouTube...';
+                    hint.style.display = 'block';
+                } else if (data.status === 'streaming') {
+                    hint.textContent = 'Streaming to YouTube! Check YouTube Studio for LIVE status.';
+                    hint.style.display = 'block';
+                } else if (data.status === 'failed') {
+                    hint.textContent = 'Failed: ' + (data.error_message || 'Unknown error');
+                    hint.style.display = 'block';
+                } else if (data.status === 'error' && data.always_on) {
+                    hint.textContent = 'Worker crashed - 24/7 mode will auto-restart...';
+                    hint.style.display = 'block';
+                } else {
+                    hint.style.display = 'none';
                 }
 
-                // Update YouTube live status
                 updateYouTubeStatus(data);
 
-            } catch (error) {
-                console.error('Failed to refresh status:', error);
+                // Also refresh sidebar
+                loadProfiles();
+            } catch (e) {
+                console.error('Failed to refresh status:', e);
             }
         }
 
-        // Start Stream
         async function startStream() {
+            if (!currentProfileId) return;
             try {
-                const response = await fetch(`${API_BASE}/streams/start`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert('Stream started successfully!', 'success');
-                    refreshStatus();
+                const resp = await fetch(profileUrl('/start'), { method: 'POST', headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (resp.ok) {
+                    showAlert('Stream started!', 'success');
+                    refreshProfileStatus();
                 } else {
                     showAlert(data.detail?.error || 'Failed to start stream', 'error');
                 }
-            } catch (error) {
-                showAlert('Failed to start stream', 'error');
-            }
+            } catch (e) { showAlert('Failed to start stream', 'error'); }
         }
 
-        // Stop Stream
         async function stopStream() {
+            if (!currentProfileId) return;
             try {
-                const response = await fetch(`${API_BASE}/streams/stop`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-
-                if (response.ok) {
+                const resp = await fetch(profileUrl('/stop'), { method: 'POST', headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (resp.ok) {
                     showAlert('Stream stopped', 'success');
-                    refreshStatus();
+                    refreshProfileStatus();
                 } else {
                     showAlert(data.detail?.error || 'Failed to stop stream', 'error');
                 }
-            } catch (error) {
-                showAlert('Failed to stop stream', 'error');
-            }
+            } catch (e) { showAlert('Failed to stop stream', 'error'); }
         }
 
-        // Upload File
+        // ==================== Config ====================
+
+        async function loadStreamConfig() {
+            if (!currentProfileId) return;
+            try {
+                const resp = await fetch(profileUrl('/config'));
+                const data = await resp.json();
+                if (data.media_key) document.getElementById('single-media-key').value = data.media_key;
+                if (Array.isArray(data.playlist) && data.playlist.length) {
+                    playlist = data.playlist.slice();
+                    renderPlaylist();
+                    switchTab('playlist');
+                } else {
+                    playlist = [];
+                    renderPlaylist();
+                }
+                document.getElementById('loop-streaming').checked = !!data.loop_streaming;
+                document.getElementById('loop-delay').value = data.loop_delay != null ? data.loop_delay : 5;
+                document.getElementById('schedule-enabled').checked = !!data.schedule_enabled;
+                document.getElementById('schedule-start-time').value = data.schedule_start_time || '09:00';
+                document.getElementById('schedule-duration-hours').value = data.schedule_duration_hours != null ? data.schedule_duration_hours : 8;
+                document.getElementById('always-on').checked = !!data.always_on;
+                document.getElementById('keepalive-interval').value = data.keepalive_interval != null ? data.keepalive_interval : 300;
+                document.getElementById('yt-api-enabled').checked = !!data.youtube_api_enabled;
+                document.getElementById('yt-channel-id').value = data.youtube_channel_id || '';
+                document.getElementById('yt-monitor-interval').value = data.youtube_monitor_interval != null ? data.youtube_monitor_interval : 30;
+                updateYouTubeCardVisibility(!!data.youtube_api_enabled);
+                updateAlwaysOnBadge(!!data.always_on);
+            } catch (e) { console.error('Failed to load config:', e); }
+        }
+
+        function updateAlwaysOnBadge(isEnabled) {
+            const badge = document.getElementById('always-on-badge');
+            if (isEnabled) { badge.classList.remove('inactive'); badge.textContent = '24/7 ON'; }
+            else { badge.classList.add('inactive'); badge.textContent = '24/7 OFF'; }
+        }
+
+        function getLoopParams() {
+            const loop = document.getElementById('loop-streaming').checked;
+            const delay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
+            return `&loop_streaming=${loop}&loop_delay=${delay}`;
+        }
+
+        async function setSingleConfig() {
+            if (!currentProfileId) return;
+            const mediaKey = document.getElementById('single-media-key').value;
+            if (!mediaKey) { showAlert('Please enter a media file', 'error'); return; }
+            try {
+                const resp = await fetch(profileUrl(`/config?media_key=${encodeURIComponent(mediaKey)}${getLoopParams()}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) showAlert('Config updated', 'success');
+                else { const d = await resp.json(); showAlert(d.detail?.error || 'Failed', 'error'); }
+            } catch (e) { showAlert('Failed to update config', 'error'); }
+        }
+
+        function addToPlaylist() {
+            const input = document.getElementById('playlist-add-input');
+            const val = input.value.trim();
+            if (val && !playlist.includes(val)) { playlist.push(val); renderPlaylist(); input.value = ''; }
+        }
+        function removeFromPlaylist(i) { playlist.splice(i, 1); renderPlaylist(); }
+        function clearPlaylist() { playlist = []; renderPlaylist(); }
+        function renderPlaylist() {
+            const c = document.getElementById('playlist-container');
+            c.innerHTML = '';
+            playlist.forEach((item, i) => {
+                const div = document.createElement('div');
+                div.className = 'playlist-item';
+                div.innerHTML = `<span>${i+1}. ${escapeHtml(item)}</span><button onclick="removeFromPlaylist(${i})">&#x2715;</button>`;
+                c.appendChild(div);
+            });
+        }
+
+        async function setPlaylistConfig() {
+            if (!currentProfileId || playlist.length === 0) { showAlert('Playlist is empty', 'error'); return; }
+            try {
+                const resp = await fetch(profileUrl(`/config?playlist=${encodeURIComponent(playlist.join(','))}${getLoopParams()}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) showAlert(`Playlist set: ${playlist.length} files`, 'success');
+                else { const d = await resp.json(); showAlert(d.detail?.error || 'Failed', 'error'); }
+            } catch (e) { showAlert('Failed to set playlist', 'error'); }
+        }
+
+        async function saveStreamKey() {
+            if (!currentProfileId) return;
+            const key = document.getElementById('youtube-stream-key').value.trim();
+            if (!key) { showAlert('Enter a stream key', 'error'); return; }
+            try {
+                const resp = await fetch(profileUrl(`/config?youtube_stream_key=${encodeURIComponent(key)}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) { showAlert('Stream key saved (encrypted)', 'success'); document.getElementById('youtube-stream-key').value = ''; }
+                else { const d = await resp.json(); showAlert(d.detail?.error || 'Failed', 'error'); }
+            } catch (e) { showAlert('Failed to save stream key', 'error'); }
+        }
+
+        async function saveLoopSettings() {
+            if (!currentProfileId) return;
+            const loop = document.getElementById('loop-streaming').checked;
+            const delay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
+            try {
+                const resp = await fetch(profileUrl(`/config?loop_streaming=${loop}&loop_delay=${delay}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) showAlert('Loop settings saved', 'success');
+            } catch (e) { showAlert('Failed to save loop settings', 'error'); }
+        }
+
+        async function saveScheduleSettings() {
+            if (!currentProfileId) return;
+            const enabled = document.getElementById('schedule-enabled').checked;
+            const startTime = (document.getElementById('schedule-start-time').value || '09:00').trim();
+            const duration = Math.min(24, Math.max(0.5, parseFloat(document.getElementById('schedule-duration-hours').value) || 8));
+            try {
+                const resp = await fetch(profileUrl(`/config?schedule_enabled=${enabled}&schedule_start_time=${encodeURIComponent(startTime)}&schedule_duration_hours=${duration}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) showAlert('Schedule saved', 'success');
+            } catch (e) { showAlert('Failed to save schedule', 'error'); }
+        }
+
+        async function saveAlwaysOnSettings() {
+            if (!currentProfileId) return;
+            const on = document.getElementById('always-on').checked;
+            const interval = Math.min(3600, Math.max(60, parseInt(document.getElementById('keepalive-interval').value, 10) || 300));
+            try {
+                const resp = await fetch(profileUrl(`/config?always_on=${on}&keepalive_interval=${interval}`), {
+                    method: 'POST', headers: getAuthHeaders()
+                });
+                if (resp.ok) showAlert(on ? '24/7 mode enabled' : '24/7 mode disabled', 'success');
+            } catch (e) { showAlert('Failed to save settings', 'error'); }
+        }
+
+        // ==================== YouTube API ====================
+
+        async function saveYouTubeAPISettings() {
+            if (!currentProfileId) return;
+            const enabled = document.getElementById('yt-api-enabled').checked;
+            const channelId = document.getElementById('yt-channel-id').value.trim();
+            const interval = Math.min(300, Math.max(10, parseInt(document.getElementById('yt-monitor-interval').value, 10) || 30));
+            if (enabled && !channelId) { showAlert('Enter YouTube Channel ID', 'error'); return; }
+
+            const formData = new URLSearchParams();
+            formData.append('youtube_api_enabled', enabled);
+            if (channelId) formData.append('youtube_channel_id', channelId);
+            formData.append('youtube_monitor_interval', interval);
+
+            try {
+                const resp = await fetch(profileUrl('/youtube/config'), {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                if (resp.ok) {
+                    showAlert(enabled ? 'YouTube API enabled' : 'YouTube API disabled', 'success');
+                    updateYouTubeCardVisibility(enabled);
+                }
+            } catch (e) { showAlert('Failed to save YouTube settings', 'error'); }
+        }
+
+        async function refreshYouTubeStatus() {
+            if (!currentProfileId) return;
+            try {
+                const resp = await fetch(profileUrl('/youtube/status'), { headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (data.error && !data.is_live) {
+                    showAlert('YouTube API: ' + data.error, 'error');
+                }
+                if (data.enabled) {
+                    updateYouTubeStatusData(data);
+                }
+            } catch (e) { showAlert('Failed to refresh YouTube status', 'error'); }
+        }
+
+        async function validateYouTubeSetup() {
+            if (!currentProfileId) return;
+            try {
+                const resp = await fetch(profileUrl('/youtube/validate'), { headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (data.api_key_valid) {
+                    let msg = 'API Key: Valid';
+                    if (data.channel_valid) msg += ' | Channel: ' + (data.channel_info?.title || 'Valid');
+                    else msg += ' | Channel: ' + (data.channel_error || 'Not set');
+                    showAlert(msg, 'success');
+                } else {
+                    showAlert('API Key invalid. Set youtube_api_key on profile.', 'error');
+                }
+            } catch (e) { showAlert('Failed to validate', 'error'); }
+        }
+
+        function updateYouTubeCardVisibility(enabled) {
+            const card = document.getElementById('youtube-card');
+            const badge = document.getElementById('yt-api-badge');
+            if (enabled) { card.style.display = 'block'; badge.textContent = 'API ON'; badge.className = 'yt-api-badge active'; }
+            else { card.style.display = 'none'; badge.textContent = 'API OFF'; badge.className = 'yt-api-badge inactive'; }
+        }
+
+        function updateYouTubeStatus(data) {
+            // Called from auto-refresh (stream status) — only show/hide card and display cached data
+            updateYouTubeCardVisibility(data.youtube_api_enabled);
+            if (!data.youtube_api_enabled) return;
+            // Show cached YouTube data from stream state (no new API call)
+            updateYouTubeStatusData({
+                is_live: data.youtube_is_live,
+                video_id: data.youtube_video_id,
+                concurrent_viewers: data.youtube_concurrent_viewers,
+                view_count: data.youtube_view_count,
+                like_count: data.youtube_like_count,
+                stream_title: data.youtube_stream_title,
+            });
+        }
+
+        function updateYouTubeStatusData(data) {
+            // Update YouTube card UI with data (from cached or live API call)
+            const liveBadge = document.getElementById('yt-live-badge');
+            if (data.is_live) { liveBadge.textContent = 'LIVE'; liveBadge.className = 'yt-live-badge live'; }
+            else { liveBadge.textContent = 'OFFLINE'; liveBadge.className = 'yt-live-badge offline'; }
+
+            const viewers = document.getElementById('yt-viewers');
+            viewers.textContent = data.concurrent_viewers != null ? formatNumber(data.concurrent_viewers) : '-';
+            document.getElementById('yt-views').textContent = data.view_count != null ? formatNumber(data.view_count) : '-';
+            document.getElementById('yt-likes').textContent = data.like_count != null ? formatNumber(data.like_count) : '-';
+            if (data.is_live && data.concurrent_viewers == null) viewers.textContent = '0';
+
+            const titleEl = document.getElementById('yt-stream-title');
+            if (data.stream_title) {
+                const decoded = new DOMParser().parseFromString(data.stream_title, 'text/html').body.textContent;
+                document.getElementById('yt-title-text').textContent = decoded;
+                titleEl.style.display = 'block';
+            } else { titleEl.style.display = 'none'; }
+
+            const linkEl = document.getElementById('yt-video-link');
+            if (data.video_id) {
+                document.getElementById('yt-video-url').href = `https://www.youtube.com/watch?v=${data.video_id}`;
+                linkEl.style.display = 'block';
+            } else { linkEl.style.display = 'none'; }
+        }
+
+        // ==================== Upload ====================
+
         async function uploadFile() {
+            if (!currentProfileId) return;
             const fileInput = document.getElementById('upload-file');
             const customKey = document.getElementById('upload-key').value;
-
-            if (!fileInput.files[0]) {
-                showAlert('Please select a file', 'error');
-                return;
-            }
+            if (!fileInput.files[0]) { showAlert('Select a file', 'error'); return; }
 
             const file = fileInput.files[0];
             const objectKey = customKey || file.name;
-
-            // Show progress
             const progressDiv = document.getElementById('upload-progress');
             const statusSpan = document.getElementById('upload-status');
             const percentSpan = document.getElementById('upload-percent');
@@ -996,402 +1279,68 @@
             progressDiv.classList.add('active');
             uploadBtn.disabled = true;
 
-            try {
-                // Upload via backend API
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('object_key', objectKey);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('object_key', objectKey);
 
-                const xhr = new XMLHttpRequest();
-
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable) {
-                        const percent = Math.round((e.loaded / e.total) * 100);
-                        percentSpan.textContent = percent + '%';
-                        fillDiv.style.width = percent + '%';
-                    }
-                };
-
-                xhr.onload = () => {
-                    if (xhr.status === 200) {
-                        const result = JSON.parse(xhr.responseText);
-                        statusSpan.textContent = 'Upload complete!';
-                        showAlert(`File uploaded: ${result.key}`, 'success');
-                        loadStorageFiles(); // Refresh file list
-                    } else {
-                        throw new Error('Upload failed');
-                    }
-                };
-
-                xhr.onerror = () => {
-                    throw new Error('Upload failed');
-                };
-
-                xhr.open('POST', `${API_BASE}/upload`);
-                // Add auth header
-                if (authToken) {
-                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+            const xhr = new XMLHttpRequest();
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    percentSpan.textContent = pct + '%';
+                    fillDiv.style.width = pct + '%';
                 }
-                xhr.send(formData);
-
-            } catch (error) {
-                statusSpan.textContent = 'Upload failed';
-                showAlert('Failed to upload file', 'error');
-            } finally {
-                setTimeout(() => {
-                    progressDiv.classList.remove('active');
-                    uploadBtn.disabled = false;
-                    fileInput.value = '';
-                    document.getElementById('upload-key').value = '';
-                }, 2000);
-            }
+            };
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const result = JSON.parse(xhr.responseText);
+                    statusSpan.textContent = 'Upload complete!';
+                    showAlert(`Uploaded: ${result.key}`, 'success');
+                    loadStorageFiles();
+                } else { statusSpan.textContent = 'Upload failed'; showAlert('Upload failed', 'error'); }
+                setTimeout(() => { progressDiv.classList.remove('active'); uploadBtn.disabled = false; fileInput.value = ''; }, 2000);
+            };
+            xhr.onerror = () => { statusSpan.textContent = 'Upload failed'; uploadBtn.disabled = false; };
+            xhr.open('POST', profileUrl('/upload'));
+            if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+            xhr.send(formData);
         }
 
-        // Load stream config (for form and loop settings)
-        async function loadStreamConfig() {
+        // ==================== Storage Browser ====================
+
+        async function loadStorageFiles() {
+            if (!currentProfileId) return;
             try {
-                const response = await fetch(`${API_BASE}/streams/config`);
-                const data = await response.json();
-                if (data.media_key) document.getElementById('single-media-key').value = data.media_key;
-                if (Array.isArray(data.playlist) && data.playlist.length) {
-                    playlist = data.playlist.slice();
-                    renderPlaylist();
-                    switchTab('playlist');
+                const resp = await fetch(profileUrl('/storage/files'), { headers: getAuthHeaders() });
+                const data = await resp.json();
+                const fileList = document.getElementById('file-list');
+                fileList.innerHTML = '';
+                if (!data.files || data.files.length === 0) {
+                    fileList.innerHTML = '<div style="text-align: center; color: #999; padding: 15px;">No files found</div>';
+                    return;
                 }
-                document.getElementById('loop-streaming').checked = !!data.loop_streaming;
-                document.getElementById('loop-delay').value = data.loop_delay != null ? data.loop_delay : 5;
-                document.getElementById('schedule-enabled').checked = !!data.schedule_enabled;
-                document.getElementById('schedule-start-time').value = data.schedule_start_time || '09:00';
-                document.getElementById('schedule-duration-hours').value = data.schedule_duration_hours != null ? data.schedule_duration_hours : 8;
-                document.getElementById('always-on').checked = !!data.always_on;
-                document.getElementById('keepalive-interval').value = data.keepalive_interval != null ? data.keepalive_interval : 300;
-
-                // YouTube API settings
-                document.getElementById('yt-api-enabled').checked = !!data.youtube_api_enabled;
-                document.getElementById('yt-channel-id').value = data.youtube_channel_id || '';
-                document.getElementById('yt-monitor-interval').value = data.youtube_monitor_interval != null ? data.youtube_monitor_interval : 30;
-                updateYouTubeCardVisibility(!!data.youtube_api_enabled);
-
-                // Update 24/7 badge
-                updateAlwaysOnBadge(!!data.always_on);
-            } catch (e) {
-                console.error('Failed to load config:', e);
-            }
-        }
-
-        function updateAlwaysOnBadge(isEnabled) {
-            const badge = document.getElementById('always-on-badge');
-            if (isEnabled) {
-                badge.classList.remove('inactive');
-                badge.textContent = '24/7 ON';
-            } else {
-                badge.classList.add('inactive');
-                badge.textContent = '24/7 OFF';
-            }
-        }
-
-        function getLoopParams() {
-            const loopStreaming = document.getElementById('loop-streaming').checked;
-            const loopDelay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
-            return `&loop_streaming=${loopStreaming}&loop_delay=${loopDelay}`;
-        }
-
-        // Config - Single File
-        async function setSingleConfig() {
-            const mediaKey = document.getElementById('single-media-key').value;
-
-            if (!mediaKey) {
-                showAlert('Please enter a media file', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?media_key=${encodeURIComponent(mediaKey)}${getLoopParams()}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
+                data.files.forEach(file => {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    div.innerHTML = `<div style="font-weight: 500;">${escapeHtml(file.key)}</div><div style="font-size: 11px; color: #666;">${formatSize(file.size)}</div>`;
+                    div.onclick = () => { document.getElementById('single-media-key').value = file.key; document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected')); div.classList.add('selected'); };
+                    fileList.appendChild(div);
                 });
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert('Config updated: ' + data.media_key, 'success');
-                } else {
-                    showAlert(data.detail?.error || 'Failed to update config', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to update config', 'error');
-            }
+            } catch (e) { console.error('Failed to load files:', e); }
         }
 
-        // Config - Playlist
-        function addToPlaylist() {
-            const input = document.getElementById('playlist-add-input');
-            const value = input.value.trim();
+        function browseFiles() { loadStorageFiles(); showAlert('Select a file from the list below', 'success'); }
 
-            if (value && !playlist.includes(value)) {
-                playlist.push(value);
-                renderPlaylist();
-                input.value = '';
-            }
+        // ==================== Tabs ====================
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            if (tab === 'single') { document.querySelector('.tab-btn:nth-child(1)').classList.add('active'); document.getElementById('tab-single').classList.add('active'); }
+            else { document.querySelector('.tab-btn:nth-child(2)').classList.add('active'); document.getElementById('tab-playlist').classList.add('active'); }
         }
 
-        function removeFromPlaylist(index) {
-            playlist.splice(index, 1);
-            renderPlaylist();
-        }
-
-        function clearPlaylist() {
-            playlist = [];
-            renderPlaylist();
-        }
-
-        function renderPlaylist() {
-            const container = document.getElementById('playlist-container');
-            container.innerHTML = '';
-
-            playlist.forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'playlist-item';
-                div.innerHTML = `
-                    <span>${index + 1}. ${item}</span>
-                    <button onclick="removeFromPlaylist(${index})">✕</button>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        async function setPlaylistConfig() {
-            if (playlist.length === 0) {
-                showAlert('Playlist is empty', 'error');
-                return;
-            }
-
-            const playlistStr = playlist.join(',');
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?playlist=${encodeURIComponent(playlistStr)}${getLoopParams()}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert(`Playlist set: ${data.playlist.length} files`, 'success');
-                } else {
-                    showAlert(data.detail?.error || 'Failed to set playlist', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to set playlist', 'error');
-            }
-        }
-
-        async function saveStreamKey() {
-            const streamKey = document.getElementById('youtube-stream-key').value.trim();
-            if (!streamKey) {
-                showAlert('Please enter a stream key', 'error');
-                return;
-            }
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?youtube_stream_key=${encodeURIComponent(streamKey)}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    showAlert('Stream key saved securely (encrypted)', 'success');
-                    document.getElementById('youtube-stream-key').value = ''; // Clear for security
-                } else {
-                    showAlert(data.detail?.error || 'Failed to save stream key', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to save stream key', 'error');
-            }
-        }
-
-        async function saveLoopSettings() {
-            const loopStreaming = document.getElementById('loop-streaming').checked;
-            const loopDelay = Math.min(300, Math.max(1, parseInt(document.getElementById('loop-delay').value, 10) || 5));
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?loop_streaming=${loopStreaming}&loop_delay=${loopDelay}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    showAlert('Loop settings saved', 'success');
-                } else {
-                    showAlert(data.detail?.error || 'Failed to save loop settings', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to save loop settings', 'error');
-            }
-        }
-
-        async function saveScheduleSettings() {
-            const scheduleEnabled = document.getElementById('schedule-enabled').checked;
-            const startTime = (document.getElementById('schedule-start-time').value || '09:00').trim();
-            const duration = Math.min(24, Math.max(0.5, parseFloat(document.getElementById('schedule-duration-hours').value) || 8));
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?schedule_enabled=${scheduleEnabled}&schedule_start_time=${encodeURIComponent(startTime)}&schedule_duration_hours=${duration}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    showAlert('Schedule saved. Stream will start at ' + startTime + ' and run ' + duration + 'h/day.', 'success');
-                } else {
-                    showAlert(data.detail?.error || 'Failed to save schedule', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to save schedule', 'error');
-            }
-        }
-
-        async function saveAlwaysOnSettings() {
-            const alwaysOn = document.getElementById('always-on').checked;
-            const keepaliveInterval = Math.min(3600, Math.max(60, parseInt(document.getElementById('keepalive-interval').value, 10) || 300));
-            try {
-                const response = await fetch(`${API_BASE}/streams/config?always_on=${alwaysOn}&keepalive_interval=${keepaliveInterval}`, {
-                    method: 'POST',
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    if (alwaysOn) {
-                        showAlert('24/7 mode enabled! Worker will auto-restart on crash.', 'success');
-                    } else {
-                        showAlert('24/7 mode disabled.', 'success');
-                    }
-                } else {
-                    showAlert(data.detail?.error || 'Failed to save 24/7 settings', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to save 24/7 settings', 'error');
-            }
-        }
-
-        // ==================== YouTube API Functions ====================
-
-        async function saveYouTubeAPISettings() {
-            const enabled = document.getElementById('yt-api-enabled').checked;
-            const channelId = document.getElementById('yt-channel-id').value.trim();
-            const interval = Math.min(300, Math.max(10, parseInt(document.getElementById('yt-monitor-interval').value, 10) || 30));
-
-            if (enabled && !channelId) {
-                showAlert('Please enter your YouTube Channel ID', 'error');
-                return;
-            }
-
-            try {
-                const formData = new URLSearchParams();
-                formData.append('youtube_api_enabled', enabled);
-                if (channelId) formData.append('youtube_channel_id', channelId);
-                formData.append('youtube_monitor_interval', interval);
-
-                const response = await fetch(`${API_BASE}/youtube/config`, {
-                    method: 'POST',
-                    headers: {
-                        ...getAuthHeaders(),
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: formData.toString()
-                });
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert(enabled ? 'YouTube API monitoring enabled!' : 'YouTube API monitoring disabled', 'success');
-                    updateYouTubeCardVisibility(enabled);
-                } else {
-                    showAlert(data.detail?.error || 'Failed to save YouTube API settings', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to save YouTube API settings', 'error');
-            }
-        }
-
-        async function validateYouTubeSetup() {
-            try {
-                const response = await fetch(`${API_BASE}/youtube/validate`, {
-                    headers: getAuthHeaders()
-                });
-                const data = await response.json();
-
-                if (data.api_key_valid) {
-                    let msg = 'API Key: Valid';
-                    if (data.channel_valid) {
-                        msg += ' | Channel: ' + (data.channel_info?.title || 'Valid');
-                    } else {
-                        msg += ' | Channel: ' + (data.channel_error || 'Not set or invalid');
-                    }
-                    showAlert(msg, 'success');
-                } else {
-                    showAlert('API Key invalid or not configured. Set YOUTUBE_API_KEY in .env', 'error');
-                }
-            } catch (error) {
-                showAlert('Failed to validate YouTube setup', 'error');
-            }
-        }
-
-        function updateYouTubeCardVisibility(enabled) {
-            const card = document.getElementById('youtube-card');
-            const badge = document.getElementById('yt-api-badge');
-            if (enabled) {
-                card.style.display = 'block';
-                badge.textContent = 'API ON';
-                badge.className = 'yt-api-badge active';
-            } else {
-                card.style.display = 'none';
-                badge.textContent = 'API OFF';
-                badge.className = 'yt-api-badge inactive';
-            }
-        }
-
-        function updateYouTubeStatus(data) {
-            // Show/hide card based on API enabled
-            updateYouTubeCardVisibility(data.youtube_api_enabled);
-
-            if (!data.youtube_api_enabled) return;
-
-            // Update live badge
-            const liveBadge = document.getElementById('yt-live-badge');
-            if (data.youtube_is_live) {
-                liveBadge.textContent = 'LIVE';
-                liveBadge.className = 'yt-live-badge live';
-            } else {
-                liveBadge.textContent = 'OFFLINE';
-                liveBadge.className = 'yt-live-badge offline';
-            }
-
-            // Update viewers
-            const viewers = document.getElementById('yt-viewers');
-            viewers.textContent = data.youtube_concurrent_viewers != null ? formatNumber(data.youtube_concurrent_viewers) : '-';
-
-            // Update views & likes
-            document.getElementById('yt-views').textContent = data.youtube_view_count != null ? formatNumber(data.youtube_view_count) : '-';
-            document.getElementById('yt-likes').textContent = data.youtube_like_count != null ? formatNumber(data.youtube_like_count) : '-';
-
-            // Update viewers - show 0 instead of dash when live but no viewers data
-            if (data.youtube_is_live && data.youtube_concurrent_viewers == null) {
-                viewers.textContent = '0';
-            }
-
-            // Update stream title (decode HTML entities)
-            const titleEl = document.getElementById('yt-stream-title');
-            if (data.youtube_stream_title) {
-                const decoded = new DOMParser().parseFromString(data.youtube_stream_title, 'text/html').body.textContent;
-                document.getElementById('yt-title-text').textContent = decoded;
-                titleEl.style.display = 'block';
-            } else {
-                titleEl.style.display = 'none';
-            }
-
-            // Update video link
-            const linkEl = document.getElementById('yt-video-link');
-            if (data.youtube_video_id) {
-                document.getElementById('yt-video-url').href = `https://www.youtube.com/watch?v=${data.youtube_video_id}`;
-                linkEl.style.display = 'block';
-            } else {
-                linkEl.style.display = 'none';
-            }
-        }
+        // ==================== Helpers ====================
 
         function formatNumber(num) {
             if (num == null) return '-';
@@ -1400,69 +1349,15 @@
             return num.toString();
         }
 
-        // Tabs
-        function switchTab(tab) {
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-
-            if (tab === 'single') {
-                document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
-                document.getElementById('tab-single').classList.add('active');
-            } else {
-                document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
-                document.getElementById('tab-playlist').classList.add('active');
-            }
-        }
-
-        // Storage Browser
-        async function loadStorageFiles() {
-            try {
-                const response = await fetch(`${API_BASE}/storage/files`);
-                const data = await response.json();
-
-                const fileList = document.getElementById('file-list');
-                fileList.innerHTML = '';
-
-                if (data.files.length === 0) {
-                    fileList.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No files found</div>';
-                    return;
-                }
-
-                data.files.forEach(file => {
-                    const div = document.createElement('div');
-                    div.className = 'file-item';
-                    div.innerHTML = `
-                        <div style="font-weight: 500;">${file.key}</div>
-                        <div style="font-size: 12px; color: #666;">${formatSize(file.size)}</div>
-                    `;
-                    div.onclick = () => selectFile(file.key);
-                    fileList.appendChild(div);
-                });
-
-            } catch (error) {
-                console.error('Failed to load files:', error);
-            }
-        }
-
-        function selectFile(filename) {
-            document.getElementById('single-media-key').value = filename;
-            document.querySelectorAll('.file-item').forEach(item => item.classList.remove('selected'));
-            event.currentTarget.classList.add('selected');
-        }
-
-        function browseFiles() {
-            loadStorageFiles();
-            showAlert('Select a file from the list below', 'success');
-        }
-
         function formatSize(bytes) {
-            for (const unit of ['B', 'KB', 'MB', 'GB']) {
-                if (bytes < 1024.0) {
-                    return bytes.toFixed(2) + ' ' + unit;
-                }
-                bytes /= 1024.0;
-            }
-            return bytes.toFixed(2) + ' TB';
+            for (const unit of ['B', 'KB', 'MB', 'GB']) { if (bytes < 1024) return bytes.toFixed(1) + ' ' + unit; bytes /= 1024; }
+            return bytes.toFixed(1) + ' TB';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>
